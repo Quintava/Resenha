@@ -58,7 +58,8 @@ alter table public.user_match_events
   add constraint user_match_events_event_type_check
   check (event_type in (
     'goal', 'sub', 'own_goal', 'missed_penalty', 'goalkeeper_change',
-    'goalkeeper_save', 'goalkeeper_difficult_save', 'goalkeeper_penalty_save', 'goalkeeper_error'
+    'goalkeeper_save', 'goalkeeper_difficult_save', 'goalkeeper_penalty_save', 'goalkeeper_error',
+    'match_highlight'
   ));
 
 -- Configuração do Mural da Resenha compartilhado.
@@ -210,13 +211,16 @@ $$;
 -- A assinatura antiga precisa ser removida antes de criar a versão com filtro.
 drop function if exists public.get_public_resenha(text, integer, integer);
 drop function if exists public.get_public_resenha(text, integer, integer, text);
+drop function if exists public.get_public_resenha(text, integer, integer, text, text, text);
 
 -- Consolida apenas os dados permitidos no Mural: ranking, agenda e resultados.
 create function public.get_public_resenha(
   target_slug text,
   result_offset integer default 0,
   result_limit integer default 10,
-  target_sport text default 'Futebol de Salão'
+  target_sport text default 'Futebol de Salão',
+  target_month text default null,
+  target_match_id text default null
 )
 returns jsonb
 language sql
@@ -242,9 +246,22 @@ matches as (
     end
   ) = target_sport
 ),
+selected_month as (
+  select coalesce(
+    nullif(target_month, ''),
+    (
+      select to_char(finished_at at time zone 'America/Sao_Paulo', 'YYYY-MM')
+      from matches
+      order by finished_at desc
+      limit 1
+    ),
+    to_char(now() at time zone 'America/Sao_Paulo', 'YYYY-MM')
+  ) as month_key
+),
 roster as (
   select
     m.id as match_id,
+    m.finished_at,
     m.payload,
     player ->> 'id' as id,
     max(player ->> 'name') as name,
@@ -260,6 +277,7 @@ roster as (
   ) as player
   group by
     m.id,
+    m.finished_at,
     m.payload,
     player ->> 'id',
     team_position
@@ -267,6 +285,7 @@ roster as (
 performance as (
   select
     roster.match_id,
+    roster.finished_at,
     roster.id,
     roster.name,
     count(event.id) filter (
@@ -282,57 +301,59 @@ performance as (
         and event.player_id = roster.id
     )::int as saves,
     greatest(
-      0,
+      3,
       least(
         10,
         6
-        + count(event.id) filter (
-            where event.event_type = 'goal'
-              and event.player_id = roster.id
-          ) * case
-            when target_sport in ('Futebol', 'Futebol Society', 'Futebol de Salão') then 0.8
-            when target_sport = 'Vôlei' then 0.35
-            when target_sport = 'Basquete' then 0.25
-            else 0.5
-          end
-        + count(event.id) filter (
-            where event.event_type = 'goal'
-              and event.assist_player_id = roster.id
-          ) * case
-            when target_sport in ('Futebol', 'Futebol Society', 'Futebol de Salão') then 0.5
-            else 0
-          end
+        + least(
+            2.0,
+            count(event.id) filter (
+              where event.event_type = 'goal'
+                and event.player_id = roster.id
+            ) * 0.55
+            + count(event.id) filter (
+                where event.event_type = 'goal'
+                  and event.assist_player_id = roster.id
+              ) * case
+                when target_sport in ('Futebol', 'Futebol Society', 'Futebol de Salão') then 0.30
+                else 0
+              end
+          )
         - count(event.id) filter (
             where event.event_type = 'own_goal'
               and event.player_id = roster.id
-          ) * 0.5
+          ) * 0.40
         - count(event.id) filter (
             where event.event_type = 'missed_penalty'
               and event.player_id = roster.id
           ) * 0.3
         + count(event.id) filter (
-            where event.event_type in ('goalkeeper_save', 'goalkeeper_difficult_save', 'goalkeeper_penalty_save')
+            where event.event_type = 'goalkeeper_save'
               and event.player_id = roster.id
-          ) * 0.1
+          ) * 0.12
         + count(event.id) filter (
             where event.event_type = 'goalkeeper_difficult_save'
               and event.player_id = roster.id
-          ) * 0.2
+          ) * 0.30
         + count(event.id) filter (
             where event.event_type = 'goalkeeper_penalty_save'
               and event.player_id = roster.id
-          ) * 0.6
+          ) * 0.70
         - count(event.id) filter (
             where event.event_type = 'goalkeeper_error'
               and event.player_id = roster.id
-          ) * 0.4
+          ) * 0.45
         - least(
             0.4,
             count(event.id) filter (
               where event.event_type in ('goal', 'own_goal')
                 and event.payload ->> 'goalkeeperId' = roster.id
-            ) * 0.1
+            ) * 0.08
           )
+        + count(event.id) filter (
+            where event.event_type = 'match_highlight'
+              and event.player_id = roster.id
+          ) * 0.30
         + case
             when roster.team_index not in (0, 1) then 0
             when coalesce(
@@ -341,15 +362,15 @@ performance as (
             ) > coalesce(
               (roster.payload -> 'score' ->> (1 - roster.team_index))::numeric,
               0
-            ) then 0.4
+            ) then 0.35
             when coalesce(
               (roster.payload -> 'score' ->> roster.team_index)::numeric,
               0
             ) = coalesce(
               (roster.payload -> 'score' ->> (1 - roster.team_index))::numeric,
               0
-            ) then 0.2
-            else -0.2
+            ) then 0.15
+            else -0.15
           end
       )
     )::numeric as score
@@ -359,6 +380,7 @@ performance as (
    and event.user_id = (select user_id from page)
   group by
     roster.match_id,
+    roster.finished_at,
     roster.id,
     roster.name,
     roster.payload,
@@ -373,8 +395,46 @@ ranking as (
     sum(saves)::int as saves,
     count(*)::int as games,
     round(sum(goals)::numeric / nullif(count(*), 0), 2) as average,
+    round(sum(saves)::numeric / nullif(count(*), 0), 2) as save_average,
     round(avg(score), 1) as evaluation
   from performance
+  group by id
+),
+monthly_ranking as (
+  select
+    id,
+    max(name) as name,
+    sum(goals)::int as goals,
+    sum(assists)::int as assists,
+    sum(saves)::int as saves,
+    count(*)::int as games,
+    round(sum(goals)::numeric / nullif(count(*), 0), 2) as average,
+    round(sum(saves)::numeric / nullif(count(*), 0), 2) as save_average,
+    round(avg(score), 1) as evaluation
+  from performance
+  where to_char(finished_at at time zone 'America/Sao_Paulo', 'YYYY-MM') =
+    (select month_key from selected_month)
+  group by id
+),
+selected_match as (
+  select coalesce(
+    nullif(target_match_id, ''),
+    (select id from matches order by finished_at desc limit 1)
+  ) as id
+),
+match_ranking as (
+  select
+    id,
+    max(name) as name,
+    sum(goals)::int as goals,
+    sum(assists)::int as assists,
+    sum(saves)::int as saves,
+    count(*)::int as games,
+    round(sum(goals)::numeric / nullif(count(*), 0), 2) as average,
+    round(sum(saves)::numeric / nullif(count(*), 0), 2) as save_average,
+    round(avg(score), 1) as evaluation
+  from performance
+  where match_id = (select id from selected_match)
   group by id
 )
 select
@@ -406,6 +466,70 @@ select
         ),
         '[]'::jsonb
       ),
+      'monthly_ranking',
+      coalesce(
+        (
+          select jsonb_agg(
+            to_jsonb(ranked)
+            order by
+              ranked.evaluation desc,
+              ranked.goals desc,
+              ranked.assists desc,
+              ranked.name
+          )
+          from monthly_ranking as ranked
+        ),
+        '[]'::jsonb
+      ),
+      'match_ranking',
+      coalesce(
+        (
+          select jsonb_agg(
+            to_jsonb(ranked)
+            order by
+              ranked.evaluation desc,
+              ranked.goals desc,
+              ranked.assists desc,
+              ranked.name
+          )
+          from match_ranking as ranked
+        ),
+        '[]'::jsonb
+      ),
+      'ranking_months',
+      coalesce(
+        (
+          select jsonb_agg(month_key order by month_key desc)
+          from (
+            select distinct
+              to_char(finished_at at time zone 'America/Sao_Paulo', 'YYYY-MM') as month_key
+            from matches
+          ) as available_months
+        ),
+        '[]'::jsonb
+      ),
+      'ranking_matches',
+      coalesce(
+        (
+          select jsonb_agg(
+            jsonb_build_object(
+              'id', listed_match.id,
+              'finished_at', listed_match.finished_at,
+              'team_a', listed_match.payload -> 'teams' -> 0 ->> 'short',
+              'team_b', listed_match.payload -> 'teams' -> 1 ->> 'short',
+              'score_a', coalesce((listed_match.payload -> 'score' ->> 0)::int, 0),
+              'score_b', coalesce((listed_match.payload -> 'score' ->> 1)::int, 0)
+            )
+            order by listed_match.finished_at desc
+          )
+          from matches as listed_match
+        ),
+        '[]'::jsonb
+      ),
+      'selected_month',
+      (select month_key from selected_month),
+      'selected_match_id',
+      (select id from selected_match),
       'upcoming',
       coalesce(
         (
@@ -471,6 +595,8 @@ revoke execute on function public.get_public_resenha(
   text,
   integer,
   integer,
+  text,
+  text,
   text
 ) from public;
 
@@ -478,5 +604,7 @@ grant execute on function public.get_public_resenha(
   text,
   integer,
   integer,
+  text,
+  text,
   text
 ) to anon, authenticated;

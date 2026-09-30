@@ -63,9 +63,12 @@ Se uma tentativa antiga deixou uma pasta `node_modules` incompleta, apague somen
 - sincronização incremental: um novo gol cria somente o registro daquele lance, sem reenviar o histórico;
 - histórico carregado em páginas de 10 partidas;
 - Mural da Resenha somente para leitura, com link travado por modalidade, destaques, média por jogo, próximos jogos e resultados;
+- Mural com rankings públicos de carreira, média mensal e desempenho de cada partida;
 - próximo jogo destacado no Mural em um card esportivo responsivo para computador, tablet e celular;
 - súmula pública expansível com minuto, autores e acontecimentos de cada partida;
 - classificação completa por esporte com pontuações, assistências, presenças e avaliação geral;
+- classificação conectada em três visões: carreira, média mensal e nota de cada partida;
+- defesas totais e média de defesas por jogo nos rankings de futebol;
 - estatísticas organizadas em páginas internas separadas para classificação, pontuadores e resultados.
 
 O login depende do Supabase. Para configurar o banco e a autenticação, siga o arquivo `CONFIGURAR_SUPABASE.md`.
@@ -111,11 +114,13 @@ Ao selecionar uma modalidade, o aplicativo preenche automaticamente a quantidade
 
 ## Como funciona a avaliação
 
-Cada presença começa com nota 6,0. Futebol soma 0,8 por gol e 0,5 por assistência; Vôlei soma 0,35 por ponto; Basquete soma 0,25 por cesta; as demais modalidades somam 0,5 por ponto. O resultado acrescenta 0,4 na vitória ou 0,2 no empate e desconta 0,2 na derrota. Gol contra desconta 0,5 e pênalti perdido desconta 0,3. A nota permanece entre 0 e 10. A avaliação geral é a média das partidas e vira estrelas: abaixo de 6 vale 1; de 6 a 6,9 vale 2; de 7 a 7,9 vale 3; de 8 a 8,9 vale 4; e a partir de 9 vale 5.
+Cada presença começa com nota 6,0. Gol, ponto ou cesta soma 0,55 e, no futebol, a assistência soma 0,30. O bônus ofensivo fica limitado a 2,0 por partida. Vitória soma 0,35, empate soma 0,15 e derrota desconta 0,15. O destaque da partida ganha 0,30. Gol contra desconta 0,40 e pênalti perdido desconta 0,30. A nota final fica entre 3,0 e 10,0.
 
-Quando um jogador atua no gol, a nota também soma 0,1 por defesa, mais 0,2 por defesa difícil e mais 0,6 por pênalti defendido. Falha desconta 0,4 e cada gol sofrido desconta 0,1, limitado a 0,4 por partida. Se não sofrer gol, recebe até 0,5 proporcionalmente ao tempo na posição. A média específica de goleiro é ponderada pelos minutos efetivamente jogados no gol.
+No gol, uma defesa normal soma 0,12, uma difícil soma 0,30 e um pênalti defendido soma 0,70. Falha desconta 0,45 e cada gol sofrido desconta 0,08, limitado a 0,40 por partida. Se o goleiro atuar em pelo menos metade do jogo sem sofrer gol, ganha até 0,40 proporcional ao tempo na posição.
 
-O cadastro guarda partidas avaliadas, pontuações, assistências, soma das notas e média geral. Na primeira abertura desta versão, os acumulados são reconstruídos automaticamente usando todo o histórico da conta. O sorteio equilibrado usa a média numérica completa; jogadores ainda sem partida entram provisoriamente com nota neutra 6,0.
+A nota vira nível visual: abaixo de 6,0 vale 1 estrela; de 6,0 a 6,7 vale 2; de 6,8 a 7,5 vale 3; de 7,6 a 8,4 vale 4; e a partir de 8,5 vale 5. A classificação pode ser vista por partida, por mês ou por toda a carreira na modalidade.
+
+O cadastro guarda os acumulados por esporte. Na primeira abertura desta versão, eles são reconstruídos usando todo o histórico da conta. O sorteio equilibrado combina 70% da média das últimas dez atuações com 30% da média geral estabilizada; estreantes entram provisoriamente com nota 6,0.
 
 ## Rodadas da mesma resenha
 

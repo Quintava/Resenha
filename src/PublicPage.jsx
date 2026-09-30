@@ -28,6 +28,8 @@ const scoreLabel = (sport) =>
     : sportKind(sport) === "volleyball"
       ? "Pontos"
       : "Gols";
+const starsFromScore = (score) =>
+  score >= 8.5 ? 5 : score >= 7.6 ? 4 : score >= 6.8 ? 3 : score >= 6 ? 2 : 1;
 
 function eventLabel(event, sport) {
   const point =
@@ -42,6 +44,7 @@ function eventLabel(event, sport) {
   if (event.type === "missed_penalty") return `Pênalti perdido por ${event.playerName}`;
   if (event.type === "sub") return `${event.playerIn} entrou · ${event.playerOut} saiu`;
   if (event.type === "goalkeeper_change") return `${event.playerIn} assumiu o gol`;
+  if (event.type === "match_highlight") return `${event.playerName} foi o destaque da partida`;
   const goalkeeper = {
     goalkeeper_save: "Defesa",
     goalkeeper_difficult_save: "Defesa difícil",
@@ -61,24 +64,46 @@ export default function PublicPage({ slug }) {
   const [content, setContent] = useState(null);
   const [status, setStatus] = useState("loading");
   const [loadingMore, setLoadingMore] = useState(false);
+  const [rankingLoading, setRankingLoading] = useState(false);
+  const [rankingScope, setRankingScope] = useState("career");
+  const [rankingMonth, setRankingMonth] = useState("");
+  const [rankingMatchId, setRankingMatchId] = useState("");
 
   useEffect(() => {
-    setStatus("loading");
-    getPublicPage(slug, 0, sport)
+    if (!content) setStatus("loading");
+    else setRankingLoading(true);
+    getPublicPage(slug, 0, sport, rankingMonth, rankingMatchId)
       .then((value) => {
         setContent(value);
+        if (!rankingMonth && value?.selected_month) setRankingMonth(value.selected_month);
+        if (!rankingMatchId && value?.selected_match_id) setRankingMatchId(value.selected_match_id);
         setStatus(value ? "ready" : "missing");
       })
-      .catch(() => setStatus("error"));
-  }, [slug, sport]);
+      .catch(() => setStatus("error"))
+      .finally(() => setRankingLoading(false));
+    // `content` não entra nas dependências para evitar uma nova busca após cada resposta.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [slug, sport, rankingMonth, rankingMatchId]);
+
+  const activeRanking = useMemo(() => {
+    if (!content) return [];
+    if (rankingScope === "month") return content.monthly_ranking || [];
+    if (rankingScope === "match") return content.match_ranking || [];
+    return content.ranking || [];
+  }, [content, rankingScope]);
 
   const highlights = useMemo(() => {
-    const ranking = content?.ranking || [];
+    const ranking = activeRanking;
     const best = (field) =>
       [...ranking].sort((a, b) => Number(b[field] || 0) - Number(a[field] || 0))[0];
     return [
       {
-        label: "Líder geral",
+        label:
+          rankingScope === "match"
+            ? "Melhor da partida"
+            : rankingScope === "month"
+              ? "Líder do mês"
+              : "Líder geral",
         player: best("evaluation"),
         value: (player) => `${Number(player.evaluation).toFixed(1)} de nota`,
         icon: <Trophy size={20} />,
@@ -106,11 +131,17 @@ export default function PublicPage({ slug }) {
         icon: <Shield size={20} />,
       },
     ];
-  }, [content, sport]);
+  }, [activeRanking, rankingScope, sport]);
 
   const loadMore = async () => {
     setLoadingMore(true);
-    const next = await getPublicPage(slug, content.results.length, sport);
+    const next = await getPublicPage(
+      slug,
+      content.results.length,
+      sport,
+      rankingMonth,
+      rankingMatchId,
+    );
     setContent((current) => ({
       ...current,
       results: [...current.results, ...next.results],
@@ -151,7 +182,7 @@ export default function PublicPage({ slug }) {
         <span className="public-sport-badge">{sport}</span>
       </header>
 
-      {content.ranking.length > 0 && (
+      {activeRanking.length > 0 && (
         <section className="public-highlights" aria-label="Destaques da modalidade">
           {highlights.map(
             ({ label, player, value, icon }) =>
@@ -173,10 +204,75 @@ export default function PublicPage({ slug }) {
             <Trophy size={21} />
             <div>
               <small>CLASSIFICAÇÃO · {sport.toUpperCase()}</small>
-              <h2>Ranking da galera</h2>
+              <h2>
+                {rankingScope === "career"
+                  ? "Carreira da galera"
+                  : rankingScope === "month"
+                    ? "Média mensal"
+                    : "Ranking da partida"}
+              </h2>
             </div>
           </header>
-          {content.ranking.length ? (
+          <nav className="public-ranking-scopes" aria-label="Tipo de ranking">
+            <button
+              className={rankingScope === "career" ? "active" : ""}
+              onClick={() => setRankingScope("career")}
+            >
+              Carreira
+            </button>
+            <button
+              className={rankingScope === "month" ? "active" : ""}
+              onClick={() => setRankingScope("month")}
+            >
+              Média mensal
+            </button>
+            <button
+              className={rankingScope === "match" ? "active" : ""}
+              onClick={() => setRankingScope("match")}
+            >
+              Por partida
+            </button>
+          </nav>
+          {rankingScope === "month" && (
+            <label className="public-ranking-filter">
+              <span>Mês da classificação</span>
+              <select
+                value={rankingMonth}
+                onChange={(event) => setRankingMonth(event.target.value)}
+              >
+                {(content.ranking_months || []).map((month) => (
+                  <option value={month} key={month}>
+                    {new Date(`${month}-02T12:00:00`).toLocaleDateString("pt-BR", {
+                      month: "long",
+                      year: "numeric",
+                    })}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {rankingScope === "match" && (
+            <label className="public-ranking-filter">
+              <span>Partida da classificação</span>
+              <select
+                value={rankingMatchId}
+                onChange={(event) => setRankingMatchId(event.target.value)}
+              >
+                {(content.ranking_matches || []).map((game) => (
+                  <option value={game.id} key={game.id}>
+                    {new Date(game.finished_at).toLocaleDateString("pt-BR")} · {game.team_a || "T1"}{" "}
+                    {game.score_a || 0} × {game.score_b || 0} {game.team_b || "T2"}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          {rankingLoading && (
+            <p className="public-ranking-loading">
+              <LoaderCircle className="spin" size={16} /> Atualizando classificação…
+            </p>
+          )}
+          {activeRanking.length ? (
             <div className="public-table-wrap">
               <table className="public-table">
                 <thead>
@@ -185,15 +281,16 @@ export default function PublicPage({ slug }) {
                     <th>Nome</th>
                     <th>{scoreLabel(sport)}</th>
                     {football && <th>Assist.</th>}
+                    {football && <th>Defesas</th>}
+                    {football && <th>Def./jogo</th>}
                     <th>Jogos</th>
                     <th>Média/jogo</th>
                     <th>Nota</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {content.ranking.map((player, index) => {
-                    const bottom =
-                      content.ranking.length > 5 && index >= content.ranking.length - 3;
+                  {activeRanking.map((player, index) => {
+                    const bottom = activeRanking.length > 5 && index >= activeRanking.length - 3;
                     return (
                       <tr
                         className={`${index < 3 ? `podium podium-${index + 1}` : ""} ${bottom ? "bottom-rank" : ""}`}
@@ -206,12 +303,17 @@ export default function PublicPage({ slug }) {
                         </td>
                         <td>{player.goals}</td>
                         {football && <td>{player.assists}</td>}
+                        {football && <td>{player.saves || 0}</td>}
+                        {football && <td>{Number(player.save_average || 0).toFixed(1)}</td>}
                         <td>{player.games}</td>
                         <td>
                           <b>{Number(player.average || 0).toFixed(2)}</b>
                         </td>
                         <td>
-                          <b>{Number(player.evaluation).toFixed(1)}</b>
+                          <span className="table-evaluation">
+                            <b>{Number(player.evaluation).toFixed(1)}</b>
+                            <small>{"★".repeat(starsFromScore(Number(player.evaluation)))}</small>
+                          </span>
                         </td>
                       </tr>
                     );
@@ -220,7 +322,7 @@ export default function PublicPage({ slug }) {
               </table>
             </div>
           ) : (
-            <p>Nenhuma partida de {sport} registrada.</p>
+            <p>Nenhuma partida encontrada para esta classificação.</p>
           )}
         </article>
 
@@ -355,6 +457,45 @@ export default function PublicPage({ slug }) {
             </button>
           )}
         </article>
+      </section>
+      <section className="public-scoring-guide" aria-labelledby="scoring-guide-title">
+        <header>
+          <Shield size={22} />
+          <div>
+            <small>REGRA TRANSPARENTE</small>
+            <h2 id="scoring-guide-title">Como a nota é calculada</h2>
+          </div>
+        </header>
+        <p>
+          Todo jogador começa cada partida com nota <strong>6,0</strong>. A nota final fica entre
+          3,0 e 10,0 e entra na média do mês e na média geral da modalidade.
+        </p>
+        <div className="scoring-guide-grid">
+          <article>
+            <strong>Resultado e ataque</strong>
+            <span>Vitória +0,35 · empate +0,15 · derrota −0,15</span>
+            <span>{scoreLabel(sport).slice(0, -1)} +0,55 · destaque +0,30</span>
+            {football && <span>Assistência +0,30 · bônus ofensivo máximo +2,0</span>}
+          </article>
+          {football && (
+            <article>
+              <strong>Goleiro</strong>
+              <span>Defesa +0,12 · difícil +0,30 · pênalti +0,70</span>
+              <span>Sem sofrer gol até +0,40 · gol sofrido −0,08 (máx. −0,40)</span>
+              <span>Falha −0,45</span>
+            </article>
+          )}
+          <article>
+            <strong>Penalidades</strong>
+            <span>Gol contra −0,40 · pênalti perdido −0,30</span>
+            <span>As médias e o ranking são separados por modalidade.</span>
+          </article>
+        </div>
+        <p className="scoring-guide-note">
+          Para equilibrar os times, o Resenha combina 70% da média das últimas partidas com 30% da
+          média geral estabilizada. Assim, uma atuação isolada pesa, mas não distorce todo o
+          histórico.
+        </p>
       </section>
       <footer className="site-footer">
         <strong>Resenha</strong>

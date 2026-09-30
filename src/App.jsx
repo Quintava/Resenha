@@ -123,7 +123,7 @@ const formatTime = (seconds) => {
 const minuteOf = (match) =>
   Math.max(1, Math.ceil((match.durationSeconds - match.remainingSeconds) / 60));
 const PLAYER_PAGE_SIZE = 10;
-const CAREER_VERSION = 3;
+const CAREER_VERSION = 4;
 const TRAINING_DAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
 // Normaliza nomes antigos e adapta os textos de pontuação para cada modalidade.
@@ -176,9 +176,9 @@ const formatTrainingDuration = (seconds) => {
 // Converte a avaliação numérica de 0 a 10 para o nível visual de 1 a 5 estrelas.
 function starsFromScore(score, matches = 1) {
   if (!matches) return 1;
-  if (score >= 9) return 5;
-  if (score >= 8) return 4;
-  if (score >= 7) return 3;
+  if (score >= 8.5) return 5;
+  if (score >= 7.6) return 4;
+  if (score >= 6.8) return 3;
   if (score >= 6) return 2;
   return 1;
 }
@@ -200,25 +200,26 @@ function playerPerformance(match, playerId) {
   );
   const own = Number(match.score?.[teamIndex] || 0);
   const rival = Number(match.score?.[teamIndex === 0 ? 1 : 0] || 0);
-  const resultBonus = teamIndex < 0 ? 0 : own > rival ? 0.4 : own === rival ? 0.2 : -0.2;
-  const kind = sportKind(match.sport);
-  const pointWeight =
-    kind === "football" ? 0.8 : kind === "volleyball" ? 0.35 : kind === "basketball" ? 0.25 : 0.5;
-  const assistWeight = kind === "football" ? 0.5 : 0;
-  const penalties = ownGoals * 0.5 + missedPenalties * 0.3;
+  const resultBonus = teamIndex < 0 ? 0 : own > rival ? 0.35 : own === rival ? 0.15 : -0.15;
+  const assistWeight = sportKind(match.sport) === "football" ? 0.3 : 0;
+  const offensiveBonus = Math.min(2, points * 0.55 + assists * assistWeight);
+  const highlight = (match.events || []).some(
+    (event) => event.type === "match_highlight" && event.playerId === playerId,
+  );
+  const penalties = ownGoals * 0.4 + missedPenalties * 0.3;
   const goalkeeper = goalkeeperPerformance(match, playerId);
   const score = Math.max(
-    0,
+    3,
     Math.min(
       10,
       Number(
         (
           6 +
-          points * pointWeight +
-          assists * assistWeight +
+          offensiveBonus +
           resultBonus -
           penalties +
-          goalkeeper.adjustment
+          goalkeeper.adjustment +
+          (highlight ? 0.3 : 0)
         ).toFixed(1),
       ),
     ),
@@ -232,6 +233,8 @@ function playerPerformance(match, playerId) {
     score,
     stars: starsFromScore(score),
     resultBonus,
+    highlight,
+    offensiveBonus,
     goalkeeper,
   };
 }
@@ -299,13 +302,14 @@ function goalkeeperPerformance(match, playerId) {
       adjustment: 0,
     };
   const share = playedSeconds ? seconds / playedSeconds : 0;
+  const normalSaves = Math.max(0, saves - difficultSaves - penaltySaves);
   const adjustment =
-    saves * 0.1 +
-    difficultSaves * 0.2 +
-    penaltySaves * 0.6 -
-    errors * 0.4 -
-    Math.min(0.4, goalsConceded * 0.1) +
-    (goalsConceded === 0 ? 0.5 * share : 0);
+    normalSaves * 0.12 +
+    difficultSaves * 0.3 +
+    penaltySaves * 0.7 -
+    errors * 0.45 -
+    Math.min(0.4, goalsConceded * 0.08) +
+    (goalsConceded === 0 && share >= 0.5 ? 0.4 * share : 0);
   return {
     seconds,
     minutes: Number((seconds / 60).toFixed(1)),
@@ -314,15 +318,14 @@ function goalkeeperPerformance(match, playerId) {
     penaltySaves,
     errors,
     goalsConceded,
-    score: Math.max(0, Math.min(10, Number((6 + adjustment).toFixed(1)))),
+    score: Math.max(3, Math.min(10, Number((6 + adjustment).toFixed(1)))),
     adjustment,
   };
 }
 
 // O acumulado fica no cadastro para não depender das páginas de histórico já carregadas.
-function emptyCareer() {
+function emptyCareerStats() {
   return {
-    version: CAREER_VERSION,
     games: 0,
     points: 0,
     assists: 0,
@@ -338,31 +341,107 @@ function emptyCareer() {
     goalkeeperPenaltySaves: 0,
     goalkeeperGoalsConceded: 0,
     goalkeeperErrors: 0,
+  };
+}
+
+function emptyCareer() {
+  return {
+    version: CAREER_VERSION,
+    ...emptyCareerStats(),
+    sports: {},
     updatedAt: null,
+  };
+}
+
+function normalizeCareerStats(stats) {
+  const source = stats || {};
+  const games = Math.max(0, Number(source.games) || 0);
+  const evaluationTotal = Math.max(0, Number(source.evaluationTotal) || 0);
+  const goalkeeperSeconds = Math.max(0, Number(source.goalkeeperSeconds) || 0);
+  const goalkeeperEvaluationSeconds = Math.max(0, Number(source.goalkeeperEvaluationSeconds) || 0);
+  return {
+    ...emptyCareerStats(),
+    ...source,
+    games,
+    points: Math.max(0, Number(source.points) || 0),
+    assists: Math.max(0, Number(source.assists) || 0),
+    evaluationTotal,
+    evaluationAverage: games ? evaluationTotal / games : 0,
+    stars: starsFromScore(games ? evaluationTotal / games : 0, games),
+    goalkeeperAppearances: Math.max(0, Number(source.goalkeeperAppearances) || 0),
+    goalkeeperSeconds,
+    goalkeeperEvaluationSeconds,
+    goalkeeperEvaluationAverage: goalkeeperSeconds
+      ? goalkeeperEvaluationSeconds / goalkeeperSeconds
+      : 0,
+    goalkeeperSaves: Math.max(0, Number(source.goalkeeperSaves) || 0),
+    goalkeeperDifficultSaves: Math.max(0, Number(source.goalkeeperDifficultSaves) || 0),
+    goalkeeperPenaltySaves: Math.max(0, Number(source.goalkeeperPenaltySaves) || 0),
+    goalkeeperGoalsConceded: Math.max(0, Number(source.goalkeeperGoalsConceded) || 0),
+    goalkeeperErrors: Math.max(0, Number(source.goalkeeperErrors) || 0),
   };
 }
 
 function normalizeCareer(career) {
   if (!career || career.version !== CAREER_VERSION) return null;
-  const games = Math.max(0, Number(career.games) || 0);
-  const evaluationTotal = Math.max(0, Number(career.evaluationTotal) || 0);
-  const evaluationAverage = games ? evaluationTotal / games : 0;
+  const sports = Object.fromEntries(
+    Object.entries(career.sports || {}).map(([sport, stats]) => [
+      canonicalSport(sport),
+      normalizeCareerStats(stats),
+    ]),
+  );
   return {
     ...emptyCareer(),
     ...career,
+    ...normalizeCareerStats(career),
+    sports,
+  };
+}
+
+function addPerformanceToCareerStats(stats, performance, direction) {
+  const current = normalizeCareerStats(stats);
+  const games = Math.max(0, current.games + direction);
+  const evaluationTotal = Math.max(
+    0,
+    Number((current.evaluationTotal + performance.score * direction).toFixed(4)),
+  );
+  const goalkeeper = performance.goalkeeper;
+  const goalkeeperSeconds = Math.max(0, current.goalkeeperSeconds + goalkeeper.seconds * direction);
+  const goalkeeperEvaluationSeconds = Math.max(
+    0,
+    current.goalkeeperEvaluationSeconds + goalkeeper.score * goalkeeper.seconds * direction,
+  );
+  return {
+    ...current,
     games,
-    points: Math.max(0, Number(career.points) || 0),
-    assists: Math.max(0, Number(career.assists) || 0),
+    points: Math.max(0, current.points + performance.points * direction),
+    assists: Math.max(0, current.assists + performance.assists * direction),
     evaluationTotal,
-    evaluationAverage,
-    stars: starsFromScore(evaluationAverage, games),
-    goalkeeperAppearances: Math.max(0, Number(career.goalkeeperAppearances) || 0),
-    goalkeeperSeconds: Math.max(0, Number(career.goalkeeperSeconds) || 0),
-    goalkeeperEvaluationSeconds: Math.max(0, Number(career.goalkeeperEvaluationSeconds) || 0),
-    goalkeeperEvaluationAverage:
-      Number(career.goalkeeperSeconds) > 0
-        ? Number(career.goalkeeperEvaluationSeconds || 0) / Number(career.goalkeeperSeconds)
-        : 0,
+    evaluationAverage: games ? evaluationTotal / games : 0,
+    stars: starsFromScore(games ? evaluationTotal / games : 0, games),
+    goalkeeperAppearances: Math.max(
+      0,
+      current.goalkeeperAppearances + (goalkeeper.seconds > 0 ? direction : 0),
+    ),
+    goalkeeperSeconds,
+    goalkeeperEvaluationSeconds,
+    goalkeeperEvaluationAverage: goalkeeperSeconds
+      ? goalkeeperEvaluationSeconds / goalkeeperSeconds
+      : 0,
+    goalkeeperSaves: Math.max(0, current.goalkeeperSaves + goalkeeper.saves * direction),
+    goalkeeperDifficultSaves: Math.max(
+      0,
+      current.goalkeeperDifficultSaves + goalkeeper.difficultSaves * direction,
+    ),
+    goalkeeperPenaltySaves: Math.max(
+      0,
+      current.goalkeeperPenaltySaves + goalkeeper.penaltySaves * direction,
+    ),
+    goalkeeperGoalsConceded: Math.max(
+      0,
+      current.goalkeeperGoalsConceded + goalkeeper.goalsConceded * direction,
+    ),
+    goalkeeperErrors: Math.max(0, current.goalkeeperErrors + goalkeeper.errors * direction),
   };
 }
 
@@ -373,56 +452,16 @@ function applyMatchToCareers(players, match, direction = 1) {
     if (!playerWasInMatch(match, player.id)) return player;
     const current = normalizeCareer(player.career) || emptyCareer();
     const performance = playerPerformance(match, player.id);
-    const games = Math.max(0, current.games + direction);
-    const points = Math.max(0, current.points + performance.points * direction);
-    const assists = Math.max(0, current.assists + performance.assists * direction);
-    const evaluationTotal = Math.max(
-      0,
-      Number((current.evaluationTotal + performance.score * direction).toFixed(4)),
-    );
-    const evaluationAverage = games ? evaluationTotal / games : 0;
-    const goalkeeper = performance.goalkeeper;
-    const goalkeeperSeconds = Math.max(
-      0,
-      current.goalkeeperSeconds + goalkeeper.seconds * direction,
-    );
-    const goalkeeperEvaluationSeconds = Math.max(
-      0,
-      current.goalkeeperEvaluationSeconds + goalkeeper.score * goalkeeper.seconds * direction,
-    );
+    const sport = canonicalSport(match.sport);
     return {
       ...player,
       career: {
         version: CAREER_VERSION,
-        games,
-        points,
-        assists,
-        evaluationTotal,
-        evaluationAverage,
-        stars: starsFromScore(evaluationAverage, games),
-        goalkeeperAppearances: Math.max(
-          0,
-          current.goalkeeperAppearances + (goalkeeper.seconds > 0 ? direction : 0),
-        ),
-        goalkeeperSeconds,
-        goalkeeperEvaluationSeconds,
-        goalkeeperEvaluationAverage: goalkeeperSeconds
-          ? goalkeeperEvaluationSeconds / goalkeeperSeconds
-          : 0,
-        goalkeeperSaves: Math.max(0, current.goalkeeperSaves + goalkeeper.saves * direction),
-        goalkeeperDifficultSaves: Math.max(
-          0,
-          current.goalkeeperDifficultSaves + goalkeeper.difficultSaves * direction,
-        ),
-        goalkeeperPenaltySaves: Math.max(
-          0,
-          current.goalkeeperPenaltySaves + goalkeeper.penaltySaves * direction,
-        ),
-        goalkeeperGoalsConceded: Math.max(
-          0,
-          current.goalkeeperGoalsConceded + goalkeeper.goalsConceded * direction,
-        ),
-        goalkeeperErrors: Math.max(0, current.goalkeeperErrors + goalkeeper.errors * direction),
+        ...addPerformanceToCareerStats(current, performance, direction),
+        sports: {
+          ...(current.sports || {}),
+          [sport]: addPerformanceToCareerStats(current.sports?.[sport], performance, direction),
+        },
         updatedAt: new Date().toISOString(),
       },
     };
@@ -454,21 +493,24 @@ function pointsInMatch(match, playerId) {
 }
 
 // Consolida presença, produção e avaliação geral de cada jogador.
-function buildPlayerStats(players, history) {
-  const lastMatch = history[0] || null;
+function buildPlayerStats(players, history, selectedSport) {
+  const sport = canonicalSport(selectedSport);
+  const sportHistory = history.filter((match) => canonicalSport(match.sport) === sport);
+  const lastMatch = sportHistory[0] || null;
   return new Map(
     players.map((player) => {
-      const loadedMatches = history.filter((match) => playerWasInMatch(match, player.id));
+      const loadedMatches = sportHistory.filter((match) => playerWasInMatch(match, player.id));
       const performances = loadedMatches.map((match) => playerPerformance(match, player.id));
       const career = normalizeCareer(player.career);
-      const matches = career?.games ?? loadedMatches.length;
+      const sportCareer = career?.sports?.[sport];
+      const matches = sportCareer?.games ?? loadedMatches.length;
       const totalPoints =
-        career?.points ?? performances.reduce((sum, item) => sum + item.points, 0);
+        sportCareer?.points ?? performances.reduce((sum, item) => sum + item.points, 0);
       const totalAssists =
-        career?.assists ?? performances.reduce((sum, item) => sum + item.assists, 0);
+        sportCareer?.assists ?? performances.reduce((sum, item) => sum + item.assists, 0);
       const average = matches ? totalPoints / matches : 0;
       const evaluation =
-        career?.evaluationAverage ??
+        sportCareer?.evaluationAverage ??
         (performances.length
           ? performances.reduce((sum, item) => sum + item.score, 0) / performances.length
           : 0);
@@ -476,7 +518,15 @@ function buildPlayerStats(players, history) {
         lastMatch && playerWasInMatch(lastMatch, player.id)
           ? playerPerformance(lastMatch, player.id)
           : null;
-      const rating = career?.stars ?? starsFromScore(evaluation, matches);
+      const recent = performances.slice(0, 10);
+      const recentAverage = recent.length
+        ? recent.reduce((sum, item) => sum + item.score, 0) / recent.length
+        : evaluation || 6;
+      const stabilizedAverage = matches ? (evaluation * matches + 18) / (matches + 3) : 6;
+      const balanceScore = matches
+        ? Number((recentAverage * 0.7 + stabilizedAverage * 0.3).toFixed(2))
+        : 6;
+      const rating = sportCareer?.stars ?? starsFromScore(evaluation, matches);
       return [
         player.id,
         {
@@ -485,15 +535,17 @@ function buildPlayerStats(players, history) {
           totalAssists,
           average,
           evaluation,
+          recentAverage,
+          balanceScore,
           lastPoints: lastPerformance?.points ?? null,
           lastRating: lastPerformance?.stars ?? null,
           rating,
           label: ratingLabel(rating),
           goalkeeper: {
-            appearances: career?.goalkeeperAppearances || 0,
-            minutes: Number(((career?.goalkeeperSeconds || 0) / 60).toFixed(1)),
-            evaluation: career?.goalkeeperEvaluationAverage || 0,
-            saves: career?.goalkeeperSaves || 0,
+            appearances: sportCareer?.goalkeeperAppearances || 0,
+            minutes: Number(((sportCareer?.goalkeeperSeconds || 0) / 60).toFixed(1)),
+            evaluation: sportCareer?.goalkeeperEvaluationAverage || 0,
+            saves: sportCareer?.goalkeeperSaves || 0,
           },
         },
       ];
@@ -523,6 +575,7 @@ function renamePlayerInMatch(match, playerId, oldName, newName) {
         "goalkeeper_difficult_save",
         "goalkeeper_penalty_save",
         "goalkeeper_error",
+        "match_highlight",
       ].includes(event.type) &&
       event.playerId === playerId
     )
@@ -569,7 +622,18 @@ function removePlayerFromMatch(match, playerId) {
         removedGoals[event.teamIndex === 0 ? 1 : 0] += 1;
         return null;
       }
-      if (event.type === "missed_penalty" && event.playerId === playerId) return null;
+      if (
+        [
+          "missed_penalty",
+          "goalkeeper_save",
+          "goalkeeper_difficult_save",
+          "goalkeeper_penalty_save",
+          "goalkeeper_error",
+          "match_highlight",
+        ].includes(event.type) &&
+        event.playerId === playerId
+      )
+        return null;
       if (event.type === "goal" && event.assistPlayerId === playerId)
         return { ...event, assistPlayerId: null, assistPlayerName: null };
       return event;
@@ -762,6 +826,8 @@ export default function Home() {
   const [month, setMonth] = useState(thisMonth());
   const [statsSport, setStatsSport] = useState("Futebol de Salão");
   const [statsSection, setStatsSection] = useState("ranking");
+  const [rankingScope, setRankingScope] = useState("overall");
+  const [rankingMatchId, setRankingMatchId] = useState("");
   const [theme, setTheme] = useState(
     () =>
       localStorage.getItem(THEME_KEY) ||
@@ -842,8 +908,8 @@ export default function Home() {
 
   // Dados derivados usados por mais de uma tela.
   const playerStats = useMemo(
-    () => buildPlayerStats(data.players, data.history),
-    [data.players, data.history],
+    () => buildPlayerStats(data.players, data.history, data.settings.sport),
+    [data.players, data.history, data.settings.sport],
   );
   const managedPlayers = useMemo(() => {
     const players = new Map(
@@ -1208,7 +1274,7 @@ export default function Home() {
     const ratedPlayers = presentPlayers.map((player) => ({
       ...player,
       rating: playerStats.get(player.id)?.rating || 1,
-      balanceScore: playerStats.get(player.id)?.matches ? playerStats.get(player.id).evaluation : 6,
+      balanceScore: playerStats.get(player.id)?.balanceScore || 6,
       evaluatedGames: playerStats.get(player.id)?.matches || 0,
       fixedGoalkeeper: (data.settings.fixedGoalkeeperIds || []).includes(player.id),
     }));
@@ -1628,6 +1694,30 @@ export default function Home() {
       return { ...current, activeMatch: { ...match, events: [event, ...match.events] } };
     });
 
+  // Mantém apenas um destaque por partida e registra a escolha junto dos demais lances.
+  const registerMatchHighlight = (teamIndex, playerId) =>
+    setData((current) => {
+      const match = current.activeMatch;
+      const player = match?.teams[teamIndex]?.starters.find((item) => item.id === playerId);
+      if (!match || !player) return current;
+      const event = {
+        id: uid(),
+        type: "match_highlight",
+        teamIndex,
+        playerId: player.id,
+        playerName: player.name,
+        minute: minuteOf(match),
+        elapsedSeconds: match.durationSeconds - match.remainingSeconds,
+      };
+      return {
+        ...current,
+        activeMatch: {
+          ...match,
+          events: [event, ...match.events.filter((item) => item.type !== "match_highlight")],
+        },
+      };
+    });
+
   const undoMatchEvent = (eventId) =>
     setData((current) => {
       const match = current.activeMatch;
@@ -1890,15 +1980,15 @@ export default function Home() {
     }));
   };
 
-  // Rankings mensais sempre respeitam a modalidade escolhida.
-  const monthMatches = useMemo(
+  // As três visões usam a mesma nota: partida, média do mês e carreira da modalidade.
+  const sportMatches = useMemo(
     () =>
-      data.history.filter(
-        (match) =>
-          monthKey(match.finishedAt || match.date) === month &&
-          canonicalSport(match.sport) === canonicalSport(statsSport),
-      ),
-    [data.history, month, statsSport],
+      data.history.filter((match) => canonicalSport(match.sport) === canonicalSport(statsSport)),
+    [data.history, statsSport],
+  );
+  const monthMatches = useMemo(
+    () => sportMatches.filter((match) => monthKey(match.finishedAt || match.date) === month),
+    [sportMatches, month],
   );
   const rankingData = useMemo(() => {
     const players = new Map();
@@ -1916,6 +2006,7 @@ export default function Home() {
           name: player.name,
           goals: 0,
           assists: 0,
+          saves: 0,
           games: 0,
           evaluationTotal: 0,
         };
@@ -1923,17 +2014,25 @@ export default function Home() {
         item.games += 1;
         item.goals += performance.points;
         item.assists += performance.assists;
+        item.saves += performance.goalkeeper.saves;
         item.evaluationTotal += performance.score;
         players.set(player.id, item);
       });
     });
-    return [...players.values()].map((player) => ({
-      ...player,
-      total: player.goals + player.assists,
-      evaluation: player.games ? Number((player.evaluationTotal / player.games).toFixed(1)) : 0,
-    }));
+    return [...players.values()].map((player) => {
+      const evaluation = player.games
+        ? Number((player.evaluationTotal / player.games).toFixed(1))
+        : 0;
+      return {
+        ...player,
+        total: player.goals + player.assists,
+        saveAverage: player.games ? player.saves / player.games : 0,
+        evaluation,
+        stars: starsFromScore(evaluation, player.games),
+      };
+    });
   }, [monthMatches]);
-  const generalRanking = useMemo(
+  const monthlyRanking = useMemo(
     () =>
       [...rankingData].sort(
         (a, b) =>
@@ -1944,6 +2043,77 @@ export default function Home() {
       ),
     [rankingData],
   );
+  const overallRanking = useMemo(() => {
+    const sport = canonicalSport(statsSport);
+    return data.players
+      .map((player) => {
+        const career = normalizeCareer(player.career)?.sports?.[sport];
+        if (!career?.games) return null;
+        return {
+          id: player.id,
+          name: player.name,
+          goals: career.points,
+          assists: career.assists,
+          saves: career.goalkeeperSaves,
+          saveAverage: career.goalkeeperSaves / career.games,
+          games: career.games,
+          total: career.points + career.assists,
+          evaluation: Number(career.evaluationAverage.toFixed(1)),
+          stars: career.stars,
+        };
+      })
+      .filter(Boolean)
+      .sort(
+        (a, b) =>
+          b.evaluation - a.evaluation ||
+          b.total - a.total ||
+          b.saves - a.saves ||
+          a.name.localeCompare(b.name),
+      );
+  }, [data.players, statsSport]);
+  const selectedRankingMatch = useMemo(
+    () => sportMatches.find((match) => match.id === rankingMatchId) || sportMatches[0] || null,
+    [sportMatches, rankingMatchId],
+  );
+  const matchRanking = useMemo(() => {
+    if (!selectedRankingMatch) return [];
+    const roster = [
+      ...new Map(
+        [...(selectedRankingMatch.teams || []), ...(selectedRankingMatch.reserveTeams || [])]
+          .flatMap((team) => [...(team.starters || []), ...(team.bench || [])])
+          .map((player) => [player.id, player]),
+      ).values(),
+    ];
+    return roster
+      .map((player) => {
+        const performance = playerPerformance(selectedRankingMatch, player.id);
+        return {
+          id: player.id,
+          name: player.name,
+          goals: performance.points,
+          assists: performance.assists,
+          saves: performance.goalkeeper.saves,
+          saveAverage: performance.goalkeeper.saves,
+          games: 1,
+          total: performance.points + performance.assists,
+          evaluation: performance.score,
+          stars: performance.stars,
+        };
+      })
+      .sort(
+        (a, b) =>
+          b.evaluation - a.evaluation ||
+          b.total - a.total ||
+          b.saves - a.saves ||
+          a.name.localeCompare(b.name),
+      );
+  }, [selectedRankingMatch]);
+  const displayedRanking =
+    rankingScope === "match"
+      ? matchRanking
+      : rankingScope === "month"
+        ? monthlyRanking
+        : overallRanking;
   const goalsRanking = useMemo(
     () =>
       [...rankingData]
@@ -2438,8 +2608,16 @@ export default function Home() {
     );
   if (!ready) return <main className="app-shell loading">Preparando o Resenha…</main>;
   const currentRankingKind = sportKind(statsSport);
-  const primaryRanking = currentRankingKind === "football" ? generalRanking : goalsRanking;
-  const totalScores = goalsRanking.reduce((sum, player) => sum + player.goals, 0);
+  const primaryRanking = displayedRanking;
+  const displayedScores = displayedRanking.reduce((sum, player) => sum + player.goals, 0);
+  const displayedGames =
+    rankingScope === "match"
+      ? selectedRankingMatch
+        ? 1
+        : 0
+      : rankingScope === "month"
+        ? monthMatches.length
+        : sportMatches.length;
 
   // Interface autenticada principal.
   return (
@@ -3049,6 +3227,7 @@ export default function Home() {
                   onSub={(playerId) => openSubstitution(teamIndex, playerId)}
                   onGoalkeeperChange={() => openGoalkeeperChange(teamIndex)}
                   onGoalkeeperAction={(type) => registerGoalkeeperAction(teamIndex, type)}
+                  onHighlight={(playerId) => registerMatchHighlight(teamIndex, playerId)}
                 />
               ))}
               <aside className="events-card">
@@ -3135,46 +3314,88 @@ export default function Home() {
             </nav>
             {statsSection === "ranking" && (
               <>
+                <nav className="ranking-scopes" aria-label="Período da classificação">
+                  <button
+                    className={rankingScope === "overall" ? "active" : ""}
+                    onClick={() => setRankingScope("overall")}
+                  >
+                    Carreira
+                  </button>
+                  <button
+                    className={rankingScope === "month" ? "active" : ""}
+                    onClick={() => setRankingScope("month")}
+                  >
+                    Média mensal
+                  </button>
+                  <button
+                    className={rankingScope === "match" ? "active" : ""}
+                    onClick={() => setRankingScope("match")}
+                  >
+                    Por partida
+                  </button>
+                </nav>
+                {rankingScope === "match" && (
+                  <label className="ranking-match-picker">
+                    <span>Partida analisada</span>
+                    <select
+                      value={selectedRankingMatch?.id || ""}
+                      onChange={(event) => setRankingMatchId(event.target.value)}
+                    >
+                      {sportMatches.map((game) => (
+                        <option value={game.id} key={game.id}>
+                          {new Date(game.finishedAt || game.date).toLocaleDateString("pt-BR")} ·{" "}
+                          {game.teams?.[0]?.short || "T1"} {game.score?.[0] || 0} ×{" "}
+                          {game.score?.[1] || 0} {game.teams?.[1]?.short || "T2"}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
                 <div className="summary-strip">
                   <Summary
                     icon={<Trophy size={20} />}
-                    label="Líder geral"
+                    label={
+                      rankingScope === "match"
+                        ? "Melhor da partida"
+                        : rankingScope === "month"
+                          ? "Líder do mês"
+                          : "Líder da carreira"
+                    }
                     value={primaryRanking[0]?.name || "—"}
                   />
                   <Summary
                     icon={<Goal size={20} />}
-                    label={`${scoreAction(statsSport)}s no mês`}
-                    value={totalScores}
+                    label={`${scoreAction(statsSport)}s na seleção`}
+                    value={displayedScores}
                   />
                   <Summary
                     icon={<CalendarDays size={20} />}
-                    label="Jogos realizados"
-                    value={monthMatches.length}
+                    label="Partidas consideradas"
+                    value={displayedGames}
                   />
                 </div>
                 <article className="ranking-table-card">
                   <header>
                     <div>
                       <span className="eyebrow">TABELA OFICIAL DA ZOEIRA</span>
-                      <h2>Ranking geral</h2>
+                      <h2>
+                        {rankingScope === "match"
+                          ? "Avaliação da partida"
+                          : rankingScope === "month"
+                            ? "Desempenho mensal"
+                            : "Ranking geral"}
+                      </h2>
                     </div>
                     <button className="button secondary" onClick={openPublicRanking}>
                       <Globe2 size={17} /> Abrir no Mural
                     </button>
                   </header>
                   <p className="rating-explanation">
-                    <Shield size={16} /> Avaliação começa em 6,0 por presença e soma desempenho:{" "}
-                    {currentRankingKind === "football"
-                      ? "+0,8 por gol, +0,5 por assistência"
-                      : currentRankingKind === "volleyball"
-                        ? "+0,35 por ponto"
-                        : currentRankingKind === "basketball"
-                          ? "+0,25 por cesta"
-                          : "+0,5 por ponto"}
-                    , além de +0,4 por vitória, +0,2 por empate, -0,2 por derrota, -0,5 por gol
-                    contra e -0,3 por pênalti perdido.
+                    <Shield size={16} /> A nota de cada partida começa em 6,0. Vitória vale +0,35,
+                    empate +0,15, cada {scoreAction(statsSport).toLowerCase()} +0,55 e assistência
+                    +0,30. O bônus ofensivo é limitado a +2,0; ações de goleiro têm pesos próprios.
                   </p>
-                  <PerformanceTable ranking={generalRanking} sport={statsSport} />
+                  <PerformanceTable ranking={displayedRanking} sport={statsSport} />
                 </article>
               </>
             )}
@@ -5056,6 +5277,8 @@ function PerformanceTable({ ranking, sport }) {
             <th>Nome</th>
             <th>{scoreAction(sport)}s</th>
             {football && <th>Assist.</th>}
+            {football && <th>Defesas</th>}
+            {football && <th>Def./jogo</th>}
             <th>Jogos</th>
             <th>Avaliação</th>
           </tr>
@@ -5080,9 +5303,16 @@ function PerformanceTable({ ranking, sport }) {
                 </td>
                 <td>{player.goals}</td>
                 {football && <td>{player.assists}</td>}
+                {football && <td>{player.saves || 0}</td>}
+                {football && <td>{Number(player.saveAverage || 0).toFixed(1)}</td>}
                 <td>{player.games}</td>
                 <td>
-                  <strong className="evaluation-badge">{player.evaluation.toFixed(1)}</strong>
+                  <span className="table-evaluation">
+                    <strong className="evaluation-badge">{player.evaluation.toFixed(1)}</strong>
+                    <small>
+                      {"★".repeat(player.stars || starsFromScore(player.evaluation, player.games))}
+                    </small>
+                  </span>
                 </td>
               </tr>
             );
@@ -5110,6 +5340,7 @@ function MatchEventRow({ event, match, onUndo }) {
   const isMissedPenalty = event.type === "missed_penalty";
   const isSubstitution = event.type === "sub";
   const isGoalkeeperChange = event.type === "goalkeeper_change";
+  const isHighlight = event.type === "match_highlight";
   const goalkeeperLabels = {
     goalkeeper_save: "Defesa",
     goalkeeper_difficult_save: "Defesa difícil",
@@ -5117,7 +5348,7 @@ function MatchEventRow({ event, match, onUndo }) {
     goalkeeper_error: "Falha do goleiro",
   };
   const isGoalkeeperAction = Boolean(goalkeeperLabels[event.type]);
-  const canUndo = isGoal || isOwnGoal || isMissedPenalty || isGoalkeeperAction;
+  const canUndo = isGoal || isOwnGoal || isMissedPenalty || isGoalkeeperAction || isHighlight;
   const team = match.teams[event.teamIndex];
   const benefitedTeam = isOwnGoal ? match.teams[event.teamIndex === 0 ? 1 : 0] : team;
 
@@ -5125,7 +5356,9 @@ function MatchEventRow({ event, match, onUndo }) {
     <div className={`event-row ${event.type}`}>
       <span className="event-minute">{event.minute}&apos;</span>
       <span className={`event-icon ${team?.color || "green"}`}>
-        {isSubstitution || isGoalkeeperChange ? (
+        {isHighlight ? (
+          <Sparkles size={17} />
+        ) : isSubstitution || isGoalkeeperChange ? (
           <ArrowDownUp size={17} />
         ) : isGoalkeeperAction ? (
           <Shield size={17} />
@@ -5177,6 +5410,12 @@ function MatchEventRow({ event, match, onUndo }) {
               {goalkeeperLabels[event.type]} · {event.playerName}
             </strong>
             <small>{team?.name || "Time"}</small>
+          </>
+        )}
+        {isHighlight && (
+          <>
+            <strong>{event.playerName} foi o destaque</strong>
+            <small>+0,30 na avaliação da partida</small>
           </>
         )}
       </div>
@@ -5267,6 +5506,7 @@ function TeamCard({
   onSub,
   onGoalkeeperChange,
   onGoalkeeperAction,
+  onHighlight,
 }) {
   const [openPlayerId, setOpenPlayerId] = useState(null);
   const runPlayerAction = (action) => {
@@ -5312,6 +5552,12 @@ function TeamCard({
                 <div className={`player-action-menu ${isGoalkeeper ? "goalkeeper-actions" : ""}`}>
                   <small>{isGoalkeeper ? "Ações do goleiro" : "Ações do jogador"}</small>
                   <div>
+                    <button
+                      type="button"
+                      onClick={() => runPlayerAction(() => onHighlight(player.id))}
+                    >
+                      <Sparkles size={15} /> Destaque da partida
+                    </button>
                     <button type="button" onClick={() => runPlayerAction(() => onGoal(player.id))}>
                       <Goal size={15} /> Registrar {scoreLabel.toLowerCase()}
                     </button>

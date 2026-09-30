@@ -5321,6 +5321,51 @@ button {
   background: var(--ink);
   color: var(--paper);
 }
+.ranking-scopes {
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  gap: 5px;
+  margin: 0 0 14px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
+}
+.ranking-scopes button {
+  min-height: 38px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 800;
+  cursor: pointer;
+}
+.ranking-scopes button.active {
+  background: var(--green);
+  color: #fff;
+}
+.ranking-match-picker {
+  display: grid;
+  gap: 6px;
+  max-width: 520px;
+  margin: 0 0 15px;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+.ranking-match-picker select {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+}
 .ranking-table-card {
   padding: 23px;
   border: 1px solid var(--line);
@@ -5361,6 +5406,16 @@ button {
   width: 100%;
   border-collapse: collapse;
   white-space: nowrap;
+}
+.table-evaluation {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.table-evaluation small {
+  color: #e5a900;
+  font-size: 0.66rem;
+  letter-spacing: 1px;
 }
 .performance-table th,
 .performance-table td,
@@ -5599,6 +5654,104 @@ tr.bottom-rank {
   grid-column: 2;
   grid-row: 2;
 }
+.public-scoring-guide {
+  width: min(1180px, 100%);
+  margin: 20px auto 0;
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--paper);
+}
+.public-ranking-scopes {
+  display: flex;
+  gap: 5px;
+  margin: 16px 0 12px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.public-ranking-scopes button {
+  flex: 1;
+  min-height: 40px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 850;
+  cursor: pointer;
+}
+.public-ranking-scopes button.active {
+  background: var(--green);
+  color: #fff;
+  box-shadow: 0 6px 16px rgb(18 148 105 / 0.2);
+}
+.public-ranking-filter {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 13px;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+.public-ranking-filter select {
+  min-height: 44px;
+  width: 100%;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+}
+.public-ranking-loading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 10px 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+.public-scoring-guide > header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.public-scoring-guide h2 {
+  margin: 2px 0 0;
+}
+.public-scoring-guide > p {
+  color: var(--muted);
+  line-height: 1.6;
+}
+.scoring-guide-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+.scoring-guide-grid article {
+  display: grid;
+  gap: 7px;
+  padding: 15px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+}
+.scoring-guide-grid span,
+.scoring-guide-note {
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+.public-scoring-guide .scoring-guide-note {
+  margin-bottom: 0;
+  padding-top: 13px;
+  border-top: 1px solid var(--line);
+}
 @media (max-width: 1024px) {
   .public-highlights {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -5612,12 +5765,31 @@ tr.bottom-rank {
     grid-column: 1;
     grid-row: auto;
   }
+  .scoring-guide-grid {
+    grid-template-columns: 1fr;
+  }
 }
 @media (max-width: 600px) {
+  .ranking-scopes {
+    width: 100%;
+  }
+  .ranking-scopes button {
+    flex: 1;
+    padding-inline: 7px;
+    font-size: 0.66rem;
+  }
   .public-highlights {
     width: 100%;
     margin-top: 0;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .public-scoring-guide {
+    padding: 18px;
+    border-radius: 16px;
+  }
+  .public-ranking-scopes button {
+    padding-inline: 5px;
+    font-size: 0.64rem;
   }
 }
 @media (max-width: 380px) {

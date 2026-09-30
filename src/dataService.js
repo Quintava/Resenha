@@ -312,12 +312,20 @@ export async function deleteUpcomingGame(userId, id) {
 }
 
 // Única leitura anônima do projeto. A função SQL aplica o modo somente leitura e o filtro.
-export async function getPublicPage(slug, offset = 0, sport = "Futebol de Salão") {
+export async function getPublicPage(
+  slug,
+  offset = 0,
+  sport = "Futebol de Salão",
+  month = null,
+  matchId = null,
+) {
   const { data, error } = await supabase.rpc("get_public_resenha", {
     target_slug: slug,
     result_offset: offset,
     result_limit: HISTORY_PAGE_SIZE,
     target_sport: sport,
+    target_month: month || null,
+    target_match_id: matchId || null,
   });
   fail(error);
   return data;
