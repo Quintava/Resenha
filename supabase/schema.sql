@@ -56,7 +56,10 @@ alter table public.user_match_events
 
 alter table public.user_match_events
   add constraint user_match_events_event_type_check
-  check (event_type in ('goal', 'sub', 'own_goal', 'missed_penalty'));
+  check (event_type in (
+    'goal', 'sub', 'own_goal', 'missed_penalty', 'goalkeeper_change',
+    'goalkeeper_save', 'goalkeeper_difficult_save', 'goalkeeper_penalty_save', 'goalkeeper_error'
+  ));
 
 -- Configuração do Mural da Resenha compartilhado.
 create table if not exists public.public_pages (
@@ -274,6 +277,10 @@ performance as (
       where event.event_type = 'goal'
         and event.assist_player_id = roster.id
     )::int as assists,
+    count(event.id) filter (
+      where event.event_type in ('goalkeeper_save', 'goalkeeper_difficult_save', 'goalkeeper_penalty_save')
+        and event.player_id = roster.id
+    )::int as saves,
     greatest(
       0,
       least(
@@ -303,6 +310,29 @@ performance as (
             where event.event_type = 'missed_penalty'
               and event.player_id = roster.id
           ) * 0.3
+        + count(event.id) filter (
+            where event.event_type in ('goalkeeper_save', 'goalkeeper_difficult_save', 'goalkeeper_penalty_save')
+              and event.player_id = roster.id
+          ) * 0.1
+        + count(event.id) filter (
+            where event.event_type = 'goalkeeper_difficult_save'
+              and event.player_id = roster.id
+          ) * 0.2
+        + count(event.id) filter (
+            where event.event_type = 'goalkeeper_penalty_save'
+              and event.player_id = roster.id
+          ) * 0.6
+        - count(event.id) filter (
+            where event.event_type = 'goalkeeper_error'
+              and event.player_id = roster.id
+          ) * 0.4
+        - least(
+            0.4,
+            count(event.id) filter (
+              where event.event_type in ('goal', 'own_goal')
+                and event.payload ->> 'goalkeeperId' = roster.id
+            ) * 0.1
+          )
         + case
             when roster.team_index not in (0, 1) then 0
             when coalesce(
@@ -340,7 +370,9 @@ ranking as (
     max(name) as name,
     sum(goals)::int as goals,
     sum(assists)::int as assists,
+    sum(saves)::int as saves,
     count(*)::int as games,
+    round(sum(goals)::numeric / nullif(count(*), 0), 2) as average,
     round(avg(score), 1) as evaluation
   from performance
   group by id
@@ -399,7 +431,17 @@ select
           select jsonb_agg(result.payload order by result.finished_at desc)
           from (
             select
-              m.payload,
+              m.payload || jsonb_build_object(
+                'events', coalesce(
+                  (
+                    select jsonb_agg(event.payload order by event.created_at, event.id)
+                    from user_match_events as event
+                    where event.user_id = (select user_id from page)
+                      and event.match_id = m.id
+                  ),
+                  '[]'::jsonb
+                )
+              ) as payload,
               m.finished_at
             from matches as m
             order by m.finished_at desc

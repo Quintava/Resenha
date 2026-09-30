@@ -13,13 +13,11 @@ import {
   ChevronRight,
   CirclePause,
   CirclePlay,
-  ClipboardList,
   Clock3,
   Cloud,
   CloudOff,
   Copy,
   Download,
-  Dumbbell,
   Eye,
   EyeOff,
   Globe2,
@@ -101,6 +99,8 @@ const initialState = {
     teamCount: 2,
     drawMode: "balanced",
     attendanceIds: [],
+    hasFixedGoalkeepers: false,
+    fixedGoalkeeperIds: [],
   },
   activeMatch: null,
   history: [],
@@ -123,7 +123,7 @@ const formatTime = (seconds) => {
 const minuteOf = (match) =>
   Math.max(1, Math.ceil((match.durationSeconds - match.remainingSeconds) / 60));
 const PLAYER_PAGE_SIZE = 10;
-const CAREER_VERSION = 2;
+const CAREER_VERSION = 3;
 const TRAINING_DAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
 // Normaliza nomes antigos e adapta os textos de pontuação para cada modalidade.
@@ -206,12 +206,20 @@ function playerPerformance(match, playerId) {
     kind === "football" ? 0.8 : kind === "volleyball" ? 0.35 : kind === "basketball" ? 0.25 : 0.5;
   const assistWeight = kind === "football" ? 0.5 : 0;
   const penalties = ownGoals * 0.5 + missedPenalties * 0.3;
+  const goalkeeper = goalkeeperPerformance(match, playerId);
   const score = Math.max(
     0,
     Math.min(
       10,
       Number(
-        (6 + points * pointWeight + assists * assistWeight + resultBonus - penalties).toFixed(1),
+        (
+          6 +
+          points * pointWeight +
+          assists * assistWeight +
+          resultBonus -
+          penalties +
+          goalkeeper.adjustment
+        ).toFixed(1),
       ),
     ),
   );
@@ -224,6 +232,90 @@ function playerPerformance(match, playerId) {
     score,
     stars: starsFromScore(score),
     resultBonus,
+    goalkeeper,
+  };
+}
+
+// Reconstrói os períodos no gol a partir do goleiro inicial e de cada troca registrada.
+function goalkeeperMinutesInMatch(match, playerId) {
+  const playedSeconds = Math.max(
+    Number(match.durationSeconds || 0) - Number(match.remainingSeconds || 0),
+    ...(match.events || []).map((event) => Number(event.elapsedSeconds || event.minute * 60 || 0)),
+    0,
+  );
+  let seconds = 0;
+  (match.teams || []).forEach((team, teamIndex) => {
+    let currentId = match.initialGoalkeeperIds?.[teamIndex] || team.goalkeeperId;
+    let startedAt = 0;
+    [...(match.events || [])]
+      .filter((event) => event.type === "goalkeeper_change" && event.teamIndex === teamIndex)
+      .sort((a, b) => Number(a.elapsedSeconds || 0) - Number(b.elapsedSeconds || 0))
+      .forEach((event) => {
+        const changedAt = Math.min(
+          playedSeconds,
+          Number(event.elapsedSeconds || event.minute * 60 || 0),
+        );
+        if (currentId === playerId) seconds += Math.max(0, changedAt - startedAt);
+        currentId = event.playerInId;
+        startedAt = changedAt;
+      });
+    if (currentId === playerId) seconds += Math.max(0, playedSeconds - startedAt);
+  });
+  return { seconds, playedSeconds };
+}
+
+// A nota do goleiro considera atuação real na posição e é proporcional ao tempo no gol.
+function goalkeeperPerformance(match, playerId) {
+  const { seconds, playedSeconds } = goalkeeperMinutesInMatch(match, playerId);
+  const events = match.events || [];
+  const saves = events.filter(
+    (event) =>
+      ["goalkeeper_save", "goalkeeper_difficult_save", "goalkeeper_penalty_save"].includes(
+        event.type,
+      ) && event.playerId === playerId,
+  ).length;
+  const difficultSaves = events.filter(
+    (event) => event.type === "goalkeeper_difficult_save" && event.playerId === playerId,
+  ).length;
+  const penaltySaves = events.filter(
+    (event) => event.type === "goalkeeper_penalty_save" && event.playerId === playerId,
+  ).length;
+  const errors = events.filter(
+    (event) => event.type === "goalkeeper_error" && event.playerId === playerId,
+  ).length;
+  const goalsConceded = events.filter(
+    (event) => ["goal", "own_goal"].includes(event.type) && event.goalkeeperId === playerId,
+  ).length;
+  if (!seconds)
+    return {
+      seconds: 0,
+      minutes: 0,
+      saves,
+      difficultSaves,
+      penaltySaves,
+      errors,
+      goalsConceded,
+      score: 0,
+      adjustment: 0,
+    };
+  const share = playedSeconds ? seconds / playedSeconds : 0;
+  const adjustment =
+    saves * 0.1 +
+    difficultSaves * 0.2 +
+    penaltySaves * 0.6 -
+    errors * 0.4 -
+    Math.min(0.4, goalsConceded * 0.1) +
+    (goalsConceded === 0 ? 0.5 * share : 0);
+  return {
+    seconds,
+    minutes: Number((seconds / 60).toFixed(1)),
+    saves,
+    difficultSaves,
+    penaltySaves,
+    errors,
+    goalsConceded,
+    score: Math.max(0, Math.min(10, Number((6 + adjustment).toFixed(1)))),
+    adjustment,
   };
 }
 
@@ -237,6 +329,15 @@ function emptyCareer() {
     evaluationTotal: 0,
     evaluationAverage: 0,
     stars: 1,
+    goalkeeperAppearances: 0,
+    goalkeeperSeconds: 0,
+    goalkeeperEvaluationSeconds: 0,
+    goalkeeperEvaluationAverage: 0,
+    goalkeeperSaves: 0,
+    goalkeeperDifficultSaves: 0,
+    goalkeeperPenaltySaves: 0,
+    goalkeeperGoalsConceded: 0,
+    goalkeeperErrors: 0,
     updatedAt: null,
   };
 }
@@ -255,6 +356,13 @@ function normalizeCareer(career) {
     evaluationTotal,
     evaluationAverage,
     stars: starsFromScore(evaluationAverage, games),
+    goalkeeperAppearances: Math.max(0, Number(career.goalkeeperAppearances) || 0),
+    goalkeeperSeconds: Math.max(0, Number(career.goalkeeperSeconds) || 0),
+    goalkeeperEvaluationSeconds: Math.max(0, Number(career.goalkeeperEvaluationSeconds) || 0),
+    goalkeeperEvaluationAverage:
+      Number(career.goalkeeperSeconds) > 0
+        ? Number(career.goalkeeperEvaluationSeconds || 0) / Number(career.goalkeeperSeconds)
+        : 0,
   };
 }
 
@@ -273,6 +381,15 @@ function applyMatchToCareers(players, match, direction = 1) {
       Number((current.evaluationTotal + performance.score * direction).toFixed(4)),
     );
     const evaluationAverage = games ? evaluationTotal / games : 0;
+    const goalkeeper = performance.goalkeeper;
+    const goalkeeperSeconds = Math.max(
+      0,
+      current.goalkeeperSeconds + goalkeeper.seconds * direction,
+    );
+    const goalkeeperEvaluationSeconds = Math.max(
+      0,
+      current.goalkeeperEvaluationSeconds + goalkeeper.score * goalkeeper.seconds * direction,
+    );
     return {
       ...player,
       career: {
@@ -283,6 +400,29 @@ function applyMatchToCareers(players, match, direction = 1) {
         evaluationTotal,
         evaluationAverage,
         stars: starsFromScore(evaluationAverage, games),
+        goalkeeperAppearances: Math.max(
+          0,
+          current.goalkeeperAppearances + (goalkeeper.seconds > 0 ? direction : 0),
+        ),
+        goalkeeperSeconds,
+        goalkeeperEvaluationSeconds,
+        goalkeeperEvaluationAverage: goalkeeperSeconds
+          ? goalkeeperEvaluationSeconds / goalkeeperSeconds
+          : 0,
+        goalkeeperSaves: Math.max(0, current.goalkeeperSaves + goalkeeper.saves * direction),
+        goalkeeperDifficultSaves: Math.max(
+          0,
+          current.goalkeeperDifficultSaves + goalkeeper.difficultSaves * direction,
+        ),
+        goalkeeperPenaltySaves: Math.max(
+          0,
+          current.goalkeeperPenaltySaves + goalkeeper.penaltySaves * direction,
+        ),
+        goalkeeperGoalsConceded: Math.max(
+          0,
+          current.goalkeeperGoalsConceded + goalkeeper.goalsConceded * direction,
+        ),
+        goalkeeperErrors: Math.max(0, current.goalkeeperErrors + goalkeeper.errors * direction),
         updatedAt: new Date().toISOString(),
       },
     };
@@ -349,6 +489,12 @@ function buildPlayerStats(players, history) {
           lastRating: lastPerformance?.stars ?? null,
           rating,
           label: ratingLabel(rating),
+          goalkeeper: {
+            appearances: career?.goalkeeperAppearances || 0,
+            minutes: Number(((career?.goalkeeperSeconds || 0) / 60).toFixed(1)),
+            evaluation: career?.goalkeeperEvaluationAverage || 0,
+            saves: career?.goalkeeperSaves || 0,
+          },
         },
       ];
     }),
@@ -368,7 +514,18 @@ function renamePlayerInMatch(match, playerId, oldName, newName) {
     ),
   }));
   const events = (match.events || []).map((event) => {
-    if (["goal", "own_goal", "missed_penalty"].includes(event.type) && event.playerId === playerId)
+    if (
+      [
+        "goal",
+        "own_goal",
+        "missed_penalty",
+        "goalkeeper_save",
+        "goalkeeper_difficult_save",
+        "goalkeeper_penalty_save",
+        "goalkeeper_error",
+      ].includes(event.type) &&
+      event.playerId === playerId
+    )
       return { ...event, playerName: newName };
     if (event.type === "goal" && event.assistPlayerId === playerId)
       return { ...event, assistPlayerName: newName };
@@ -377,6 +534,12 @@ function renamePlayerInMatch(match, playerId, oldName, newName) {
         ...event,
         playerOut: event.playerOut === oldName ? newName : event.playerOut,
         playerIn: event.playerIn === oldName ? newName : event.playerIn,
+      };
+    if (event.type === "goalkeeper_change")
+      return {
+        ...event,
+        playerOut: event.playerOutId === playerId ? newName : event.playerOut,
+        playerIn: event.playerInId === playerId ? newName : event.playerIn,
       };
     return event;
   });
@@ -412,11 +575,15 @@ function removePlayerFromMatch(match, playerId) {
       return event;
     })
     .filter(Boolean);
-  const teams = (match.teams || []).map((team) => ({
-    ...team,
-    starters: (team.starters || []).filter((player) => player.id !== playerId),
-    bench: (team.bench || []).filter((player) => player.id !== playerId),
-  }));
+  const teams = (match.teams || []).map((team) => {
+    const starters = (team.starters || []).filter((player) => player.id !== playerId);
+    return {
+      ...team,
+      starters,
+      bench: (team.bench || []).filter((player) => player.id !== playerId),
+      goalkeeperId: team.goalkeeperId === playerId ? starters[0]?.id || null : team.goalkeeperId,
+    };
+  });
   const reserveTeams = (match.reserveTeams || []).map((team) => ({
     ...team,
     starters: (team.starters || []).filter((player) => player.id !== playerId),
@@ -425,7 +592,38 @@ function removePlayerFromMatch(match, playerId) {
   const score = (match.score || [0, 0]).map((value, index) =>
     Math.max(0, value - removedGoals[index]),
   );
-  return { ...match, teams, reserveTeams, events, score };
+  return {
+    ...match,
+    teams,
+    reserveTeams,
+    events,
+    score,
+    initialGoalkeeperIds: teams.map((team, index) =>
+      match.initialGoalkeeperIds?.[index] === playerId
+        ? team.goalkeeperId
+        : match.initialGoalkeeperIds?.[index] || team.goalkeeperId,
+    ),
+  };
+}
+
+function normalizeMatchGoalkeepers(match) {
+  if (!match) return match;
+  const teams = (match.teams || []).map((team) => ({
+    ...team,
+    goalkeeperId:
+      team.goalkeeperId && (team.starters || []).some((player) => player.id === team.goalkeeperId)
+        ? team.goalkeeperId
+        : team.starters?.[0]?.id || null,
+  }));
+  return {
+    ...match,
+    teams,
+    initialGoalkeeperIds:
+      Array.isArray(match.initialGoalkeeperIds) &&
+      match.initialGoalkeeperIds.length === teams.length
+        ? match.initialGoalkeeperIds
+        : teams.map((team) => team.goalkeeperId),
+  };
 }
 
 // Aceita dados de versões anteriores e garante que todos os campos atuais existam.
@@ -441,11 +639,20 @@ function normalizeState(raw) {
     ...initialState,
     ...saved,
     profile: { displayName: String(saved.profile?.displayName || "").slice(0, 40) },
-    settings: { ...initialState.settings, ...(saved.settings || {}) },
+    settings: {
+      ...initialState.settings,
+      ...(saved.settings || {}),
+      hasFixedGoalkeepers:
+        saved.settings?.hasFixedGoalkeepers ??
+        (Array.isArray(saved.settings?.fixedGoalkeeperIds) &&
+          saved.settings.fixedGoalkeeperIds.length > 0),
+    },
     players,
-    history: Array.isArray(saved.history) ? saved.history : [],
-    trainingPlans: Array.isArray(saved.trainingPlans) ? saved.trainingPlans : [],
-    trainingHistory: Array.isArray(saved.trainingHistory) ? saved.trainingHistory : [],
+    activeMatch: normalizeMatchGoalkeepers(saved.activeMatch),
+    history: Array.isArray(saved.history) ? saved.history.map(normalizeMatchGoalkeepers) : [],
+    trainingPlans: [],
+    trainingHistory: [],
+    activeTraining: null,
   };
 }
 
@@ -461,12 +668,7 @@ function readSaved(key) {
 
 const userStorageKey = (userId) => `${USER_STORAGE_PREFIX}:${userId}`;
 const hasSavedContent = (saved) =>
-  saved.players.length > 0 ||
-  saved.history.length > 0 ||
-  Boolean(saved.activeMatch) ||
-  (saved.trainingPlans || []).length > 0 ||
-  (saved.trainingHistory || []).length > 0 ||
-  Boolean(saved.activeTraining);
+  saved.players.length > 0 || saved.history.length > 0 || Boolean(saved.activeMatch);
 
 // Sorteio Fisher-Yates para não favorecer a ordem original do cadastro.
 function shuffle(items) {
@@ -480,12 +682,14 @@ function shuffle(items) {
 
 // Distribui atletas entre 2 e 6 times. No modo equilibrado, usa a nota média acumulada.
 function drawTeams(players, mode, startersPerTeam, teamCount = 2) {
-  let ordered = shuffle(players);
+  const fixedGoalkeepers = shuffle(players.filter((player) => player.fixedGoalkeeper));
+  let ordered = shuffle(players.filter((player) => !player.fixedGoalkeeper));
   if (mode === "balanced")
     ordered = ordered.sort(
       (a, b) => b.balanceScore - a.balanceScore || b.evaluatedGames - a.evaluatedGames,
     );
   const teams = TEAM_META.slice(0, teamCount).map((meta) => ({ ...meta, starters: [], bench: [] }));
+  fixedGoalkeepers.forEach((player, index) => teams[index % teams.length].starters.push(player));
   ordered.forEach((player, index) => {
     let target = index % teams.length;
     if (mode === "balanced") {
@@ -503,6 +707,21 @@ function drawTeams(players, mode, startersPerTeam, teamCount = 2) {
     teams[target][list].push(player);
   });
   return teams;
+}
+
+// Garante que o goleiro escolhido esteja em jogo e guarda quem começa a rodada na posição.
+function prepareGoalkeepers(teams) {
+  return teams.map((team) => {
+    const chosen = [...team.starters, ...team.bench].find((player) => player.fixedGoalkeeper);
+    let starters = [...team.starters];
+    let bench = [...team.bench];
+    if (chosen && bench.some((player) => player.id === chosen.id) && starters.length) {
+      const outgoing = starters[starters.length - 1];
+      starters = starters.map((player) => (player.id === outgoing.id ? chosen : player));
+      bench = bench.map((player) => (player.id === chosen.id ? outgoing : player));
+    }
+    return { ...team, starters, bench, goalkeeperId: chosen?.id || starters[0]?.id || null };
+  });
 }
 
 // Constrói os times conforme a escolha manual feita na tela de preparação.
@@ -535,6 +754,8 @@ export default function Home() {
   const [selectedOut, setSelectedOut] = useState("");
   const [selectedIn, setSelectedIn] = useState("");
   const [teamSwapSide, setTeamSwapSide] = useState(null);
+  const [goalkeeperTeam, setGoalkeeperTeam] = useState(null);
+  const [goalkeeperCandidate, setGoalkeeperCandidate] = useState("");
   const [matchMessage, setMatchMessage] = useState("");
 
   // Filtros de estatísticas e preferências visuais.
@@ -563,6 +784,7 @@ export default function Home() {
   const [settingsMessage, setSettingsMessage] = useState("");
   const [setupMessage, setSetupMessage] = useState("");
   const [manualAssignments, setManualAssignments] = useState({});
+  const [goalkeeperPickerOpen, setGoalkeeperPickerOpen] = useState(false);
 
   // Evolução mensal e modo treino.
   const [evolutionPlayerId, setEvolutionPlayerId] = useState("");
@@ -615,6 +837,7 @@ export default function Home() {
 
   // Atalhos do estado precisam existir antes dos cálculos derivados abaixo.
   const match = data.activeMatch;
+  // Mantido apenas para migração silenciosa de contas antigas; o modo treino saiu da interface.
   const activeTraining = data.activeTraining;
 
   // Dados derivados usados por mais de uma tela.
@@ -663,23 +886,6 @@ export default function Home() {
     () => data.players.slice((playerPage - 1) * PLAYER_PAGE_SIZE, playerPage * PLAYER_PAGE_SIZE),
     [data.players, playerPage],
   );
-  const lastMatchLeaders = useMemo(() => {
-    const match = data.history[0];
-    if (!match) return [];
-    const totals = new Map();
-    (match.events || [])
-      .filter((event) => event.type === "goal")
-      .forEach((event) =>
-        totals.set(event.playerId, {
-          id: event.playerId,
-          name: event.playerName,
-          points: (totals.get(event.playerId)?.points || 0) + 1,
-        }),
-      );
-    return [...totals.values()]
-      .sort((a, b) => b.points - a.points || a.name.localeCompare(b.name))
-      .slice(0, 3);
-  }, [data.history]);
   const displayName =
     data.profile?.displayName?.trim() ||
     session?.user?.user_metadata?.display_name ||
@@ -1004,6 +1210,7 @@ export default function Home() {
       rating: playerStats.get(player.id)?.rating || 1,
       balanceScore: playerStats.get(player.id)?.matches ? playerStats.get(player.id).evaluation : 6,
       evaluatedGames: playerStats.get(player.id)?.matches || 0,
+      fixedGoalkeeper: (data.settings.fixedGoalkeeperIds || []).includes(player.id),
     }));
     if (ratedPlayers.length < teamCount) {
       setSetupMessage(`Marque pelo menos ${teamCount} jogadores para formar ${teamCount} times.`);
@@ -1030,7 +1237,16 @@ export default function Home() {
       setSetupMessage("A divisão manual precisa ter pelo menos um jogador em cada time.");
       return { ok: false, error: "Escolha pelo menos um jogador para cada time." };
     }
-    const allTeams =
+    if (data.settings.drawMode === "manual") {
+      const goalkeeperTeams = ratedPlayers
+        .filter((player) => player.fixedGoalkeeper)
+        .map((player) => manualAssignments[player.id]);
+      if (new Set(goalkeeperTeams).size !== goalkeeperTeams.length) {
+        setSetupMessage("Na divisão manual, coloque cada goleiro fixo em um time diferente.");
+        return { ok: false, error: "Goleiros fixos no mesmo time." };
+      }
+    }
+    const allTeams = prepareGoalkeepers(
       data.settings.drawMode === "manual"
         ? buildManualTeams(
             ratedPlayers,
@@ -1038,7 +1254,8 @@ export default function Home() {
             data.settings.startersPerTeam,
             teamCount,
           )
-        : drawTeams(ratedPlayers, data.settings.drawMode, data.settings.startersPerTeam, teamCount);
+        : drawTeams(ratedPlayers, data.settings.drawMode, data.settings.startersPerTeam, teamCount),
+    );
     const match = {
       id: uid(),
       sessionId: uid(),
@@ -1051,6 +1268,7 @@ export default function Home() {
       attendanceIds: ratedPlayers.map((player) => player.id),
       teams: allTeams.slice(0, 2),
       reserveTeams: allTeams.slice(2),
+      initialGoalkeeperIds: allTeams.slice(0, 2).map((team) => team.goalkeeperId),
       score: [0, 0],
       events: [],
     };
@@ -1085,6 +1303,8 @@ export default function Home() {
         assistPlayerId: assistPlayer?.id || null,
         assistPlayerName: assistPlayer?.name || null,
         minute: minuteOf(match),
+        elapsedSeconds: match.durationSeconds - match.remainingSeconds,
+        goalkeeperId: match.teams[teamIndex === 0 ? 1 : 0]?.goalkeeperId || null,
       };
       result = { ok: true, player: player.name, score };
       return { ...current, activeMatch: { ...match, score, events: [event, ...match.events] } };
@@ -1110,6 +1330,8 @@ export default function Home() {
         playerId: player.id,
         playerName: player.name,
         minute: minuteOf(match),
+        elapsedSeconds: match.durationSeconds - match.remainingSeconds,
+        goalkeeperId: type === "own_goal" ? match.teams[teamIndex]?.goalkeeperId || null : null,
       };
       return { ...current, activeMatch: { ...match, score, events: [event, ...match.events] } };
     });
@@ -1166,7 +1388,17 @@ export default function Home() {
 
   // Configuração, presença, cronômetro e substituições individuais.
   const updateSettings = (field, value) =>
-    setData((current) => ({ ...current, settings: { ...current.settings, [field]: value } }));
+    setData((current) => ({
+      ...current,
+      settings: {
+        ...current.settings,
+        [field]: value,
+        fixedGoalkeeperIds:
+          field === "teamCount"
+            ? (current.settings.fixedGoalkeeperIds || []).slice(0, Number(value))
+            : current.settings.fixedGoalkeeperIds || [],
+      },
+    }));
   const changeSport = (sport) => {
     const preset = SPORT_PRESETS[sport];
     setData((current) => ({
@@ -1188,7 +1420,16 @@ export default function Home() {
       const attendanceIds = currentIds.includes(playerId)
         ? currentIds.filter((id) => id !== playerId)
         : [...currentIds, playerId];
-      return { ...current, settings: { ...current.settings, attendanceIds } };
+      return {
+        ...current,
+        settings: {
+          ...current.settings,
+          attendanceIds,
+          fixedGoalkeeperIds: (current.settings.fixedGoalkeeperIds || []).filter((id) =>
+            attendanceIds.includes(id),
+          ),
+        },
+      };
     });
   const setAllAttendance = (present) =>
     setData((current) => ({
@@ -1196,8 +1437,43 @@ export default function Home() {
       settings: {
         ...current.settings,
         attendanceIds: present ? current.players.map((player) => player.id) : [],
+        fixedGoalkeeperIds: present ? current.settings.fixedGoalkeeperIds || [] : [],
       },
     }));
+  const toggleFixedGoalkeeper = (playerId) =>
+    setData((current) => {
+      const ids = current.settings.fixedGoalkeeperIds || [];
+      if (ids.includes(playerId))
+        return {
+          ...current,
+          settings: {
+            ...current.settings,
+            fixedGoalkeeperIds: ids.filter((id) => id !== playerId),
+          },
+        };
+      const limit = Math.max(2, Number(current.settings.teamCount) || 2);
+      if (ids.length >= limit) {
+        setSetupMessage(`Escolha no máximo ${limit} goleiros fixos, um para cada time.`);
+        return current;
+      }
+      setSetupMessage("");
+      return {
+        ...current,
+        settings: { ...current.settings, fixedGoalkeeperIds: [...ids, playerId] },
+      };
+    });
+  const setFixedGoalkeeperMode = (enabled) => {
+    setData((current) => ({
+      ...current,
+      settings: {
+        ...current.settings,
+        hasFixedGoalkeepers: enabled,
+        fixedGoalkeeperIds: enabled ? current.settings.fixedGoalkeeperIds || [] : [],
+      },
+    }));
+    setGoalkeeperPickerOpen(enabled);
+    setSetupMessage("");
+  };
   const toggleTimer = () =>
     setData((current) =>
       !current.activeMatch || current.activeMatch.remainingSeconds === 0
@@ -1219,10 +1495,10 @@ export default function Home() {
         : null,
     }));
 
-  const openSubstitution = (teamIndex) => {
+  const openSubstitution = (teamIndex, playerOutId = "") => {
     const team = data.activeMatch?.teams[teamIndex];
     setSubTeam(teamIndex);
-    setSelectedOut(team?.starters[0]?.id || "");
+    setSelectedOut(playerOutId || team?.starters[0]?.id || "");
     setSelectedIn(team?.bench[0]?.id || "");
   };
 
@@ -1238,6 +1514,7 @@ export default function Home() {
           ? team
           : {
               ...team,
+              goalkeeperId: team.goalkeeperId === selectedOut ? incoming.id : team.goalkeeperId,
               starters: team.starters.map((player) =>
                 player.id === selectedOut ? incoming : player,
               ),
@@ -1251,11 +1528,105 @@ export default function Home() {
         playerOut: out.name,
         playerIn: incoming.name,
         minute: minuteOf(match),
+        elapsedSeconds: match.durationSeconds - match.remainingSeconds,
       };
-      return { ...current, activeMatch: { ...match, teams, events: [event, ...match.events] } };
+      const goalkeeperEvent =
+        match.teams[subTeam].goalkeeperId === selectedOut
+          ? {
+              id: uid(),
+              type: "goalkeeper_change",
+              teamIndex: subTeam,
+              playerOutId: out.id,
+              playerOut: out.name,
+              playerInId: incoming.id,
+              playerIn: incoming.name,
+              minute: minuteOf(match),
+              elapsedSeconds: match.durationSeconds - match.remainingSeconds,
+            }
+          : null;
+      return {
+        ...current,
+        activeMatch: {
+          ...match,
+          teams,
+          events: [event, ...(goalkeeperEvent ? [goalkeeperEvent] : []), ...match.events],
+        },
+      };
     });
     setSubTeam(null);
   };
+
+  const openGoalkeeperChange = (teamIndex) => {
+    const team = data.activeMatch?.teams[teamIndex];
+    setGoalkeeperTeam(teamIndex);
+    setGoalkeeperCandidate(
+      [...(team?.starters || []), ...(team?.bench || [])].find(
+        (player) => player.id !== team?.goalkeeperId,
+      )?.id || "",
+    );
+  };
+
+  // Troca o goleiro com um atleta da linha ou coloca um reserva diretamente em jogo.
+  const confirmGoalkeeperChange = () => {
+    setData((current) => {
+      const match = current.activeMatch;
+      if (!match || goalkeeperTeam === null || !goalkeeperCandidate) return current;
+      const team = match.teams[goalkeeperTeam];
+      const currentGoalkeeper = team.starters.find((player) => player.id === team.goalkeeperId);
+      const candidate = [...team.starters, ...team.bench].find(
+        (player) => player.id === goalkeeperCandidate,
+      );
+      if (!currentGoalkeeper || !candidate || candidate.id === currentGoalkeeper.id) return current;
+      const candidateOnBench = team.bench.some((player) => player.id === candidate.id);
+      const teams = match.teams.map((item, index) => {
+        if (index !== goalkeeperTeam) return item;
+        return {
+          ...item,
+          goalkeeperId: candidate.id,
+          starters: candidateOnBench
+            ? item.starters.map((player) =>
+                player.id === currentGoalkeeper.id ? candidate : player,
+              )
+            : item.starters,
+          bench: candidateOnBench
+            ? item.bench.map((player) => (player.id === candidate.id ? currentGoalkeeper : player))
+            : item.bench,
+        };
+      });
+      const event = {
+        id: uid(),
+        type: "goalkeeper_change",
+        teamIndex: goalkeeperTeam,
+        playerOutId: currentGoalkeeper.id,
+        playerOut: currentGoalkeeper.name,
+        playerInId: candidate.id,
+        playerIn: candidate.name,
+        minute: minuteOf(match),
+        elapsedSeconds: match.durationSeconds - match.remainingSeconds,
+      };
+      return { ...current, activeMatch: { ...match, teams, events: [event, ...match.events] } };
+    });
+    setGoalkeeperTeam(null);
+    setGoalkeeperCandidate("");
+  };
+
+  const registerGoalkeeperAction = (teamIndex, type) =>
+    setData((current) => {
+      const match = current.activeMatch;
+      const team = match?.teams[teamIndex];
+      const goalkeeper = team?.starters.find((player) => player.id === team.goalkeeperId);
+      if (!match || !goalkeeper) return current;
+      const event = {
+        id: uid(),
+        type,
+        teamIndex,
+        playerId: goalkeeper.id,
+        playerName: goalkeeper.name,
+        minute: minuteOf(match),
+        elapsedSeconds: match.durationSeconds - match.remainingSeconds,
+      };
+      return { ...current, activeMatch: { ...match, events: [event, ...match.events] } };
+    });
 
   const undoMatchEvent = (eventId) =>
     setData((current) => {
@@ -1292,6 +1663,7 @@ export default function Home() {
       running: false,
       score: [0, 0],
       events: [],
+      initialGoalkeeperIds: data.activeMatch.teams.map((team) => team.goalkeeperId),
     };
     setData((current) => ({
       ...current,
@@ -1320,30 +1692,49 @@ export default function Home() {
       const outgoing = teams[teamSwapSide];
       teams[teamSwapSide] = reserveTeams[reserveIndex];
       reserveTeams[reserveIndex] = outgoing;
-      return { ...current, activeMatch: { ...match, teams, reserveTeams } };
+      return {
+        ...current,
+        activeMatch: {
+          ...match,
+          teams,
+          reserveTeams,
+          initialGoalkeeperIds: teams.map((team) => team.goalkeeperId),
+        },
+      };
     });
     setMatchMessage("Time completo trocado. A fila de times de fora foi atualizada.");
     setTeamSwapSide(null);
   };
 
-  // Encerra toda a resenha; salvar uma partida isolada não passa por esta função.
+  // Salva a partida em andamento, quando houve jogo, e encerra toda a resenha.
   const endSession = () => {
-    if (
-      !window.confirm(
-        "Encerrar a resenha de hoje? A partida atual ainda sem placar não será salva.",
-      )
-    )
-      return;
-    setData((current) => ({ ...current, activeMatch: null }));
+    if (!data.activeMatch || finishingRef.current) return;
+    const played =
+      data.activeMatch.events.length > 0 ||
+      data.activeMatch.score.some((value) => value > 0) ||
+      data.activeMatch.remainingSeconds < data.activeMatch.durationSeconds;
+    const message = played
+      ? "Salvar esta partida e encerrar a resenha de hoje?"
+      : "Encerrar a resenha? Esta partida vazia não será salva.";
+    if (!window.confirm(message)) return;
+    finishingRef.current = true;
+    setData((current) => {
+      const activeMatch = current.activeMatch;
+      if (!activeMatch) return current;
+      if (!played) return { ...current, activeMatch: null };
+      const finished = { ...activeMatch, running: false, finishedAt: new Date().toISOString() };
+      return {
+        ...current,
+        players: applyMatchToCareers(current.players, finished, 1),
+        history: [finished, ...current.history],
+        activeMatch: null,
+      };
+    });
     setMatchMessage("");
     setView("setup");
-  };
-
-  const cancelMatch = () => {
-    if (!window.confirm("Descartar a partida atual e encerrar esta resenha?")) return;
-    setData((current) => ({ ...current, activeMatch: null }));
-    setMatchMessage("");
-    setView("setup");
+    window.setTimeout(() => {
+      finishingRef.current = false;
+    }, 600);
   };
 
   // Criação, execução e histórico dos treinos pessoais.
@@ -1709,6 +2100,9 @@ export default function Home() {
         attendanceIds: Array.isArray(current.settings.attendanceIds)
           ? current.settings.attendanceIds.filter((id) => id !== player.id)
           : current.settings.attendanceIds,
+        fixedGoalkeeperIds: (current.settings.fixedGoalkeeperIds || []).filter(
+          (id) => id !== player.id,
+        ),
       },
       activeMatch: removePlayerFromMatch(current.activeMatch, player.id),
       history: current.history.map((game) => removePlayerFromMatch(game, player.id)),
@@ -1846,7 +2240,7 @@ export default function Home() {
   const refreshPublicConfig = useCallback(async () => {
     if (!session?.user) return;
     try {
-      setPublicConfig(await getPublicSettings(session.user.id, `${displayName} · Resenha`));
+      setPublicConfig(await getPublicSettings(session.user.id, "Mural da Resenha"));
     } catch (error) {
       setSettingsMessage(`Não foi possível carregar a página pública: ${error.message}`);
     }
@@ -1972,8 +2366,8 @@ export default function Home() {
         settings: { ...initialState.settings, ...imported.settings },
         activeMatch:
           imported.activeMatch && validMatch(imported.activeMatch) ? imported.activeMatch : null,
-        trainingPlans: Array.isArray(imported.trainingPlans) ? imported.trainingPlans : [],
-        trainingHistory: Array.isArray(imported.trainingHistory) ? imported.trainingHistory : [],
+        trainingPlans: [],
+        trainingHistory: [],
         activeTraining: null,
       };
       setData(nextData);
@@ -2138,33 +2532,6 @@ export default function Home() {
                   <span>
                     <strong>Evolução</strong>
                     <small>Desempenho de cada jogador</small>
-                  </span>
-                </button>
-                <button
-                  className={view === "training" ? "active" : ""}
-                  onClick={() => {
-                    setSettingsMessage("");
-                    setView("training");
-                    setAppMenuOpen(false);
-                  }}
-                >
-                  <Dumbbell size={18} />
-                  <span>
-                    <strong>Modo treino</strong>
-                    <small>Cronograma e preparação física</small>
-                  </span>
-                </button>
-                <button
-                  className={view === "training-stats" ? "active" : ""}
-                  onClick={() => {
-                    setView("training-stats");
-                    setAppMenuOpen(false);
-                  }}
-                >
-                  <ClipboardList size={18} />
-                  <span>
-                    <strong>Estatísticas de treino</strong>
-                    <small>Evolução da preparação pessoal</small>
                   </span>
                 </button>
               </nav>
@@ -2453,6 +2820,68 @@ export default function Home() {
                   text="Escolha cada time"
                 />
               </fieldset>
+              <fieldset className="goalkeeper-picker">
+                <legend>
+                  Goleiro fixo de hoje <small>(opcional)</small>
+                </legend>
+                <div className="field goalkeeper-mode-field">
+                  <label htmlFor="fixed-goalkeeper-mode">Vai ter goleiro fixo?</label>
+                  <select
+                    id="fixed-goalkeeper-mode"
+                    value={data.settings.hasFixedGoalkeepers ? "yes" : "no"}
+                    onChange={(event) => setFixedGoalkeeperMode(event.target.value === "yes")}
+                  >
+                    <option value="no">Não, vai ter rodízio</option>
+                    <option value="yes">Sim, escolher goleiros</option>
+                  </select>
+                </div>
+                {data.settings.hasFixedGoalkeepers && (
+                  <div className="goalkeeper-select-menu">
+                    <button
+                      type="button"
+                      className="goalkeeper-select-trigger"
+                      onClick={() => setGoalkeeperPickerOpen((current) => !current)}
+                      aria-expanded={goalkeeperPickerOpen}
+                    >
+                      <span>
+                        <Shield size={17} />
+                        {(data.settings.fixedGoalkeeperIds || []).length
+                          ? `${data.settings.fixedGoalkeeperIds.length} goleiro(s) selecionado(s)`
+                          : "Selecionar os goleiros"}
+                      </span>
+                      <ChevronDown size={17} />
+                    </button>
+                    {goalkeeperPickerOpen && (
+                      <div className="goalkeeper-option-list">
+                        {presentPlayers.length ? (
+                          presentPlayers.map((player) => {
+                            const selected = (data.settings.fixedGoalkeeperIds || []).includes(
+                              player.id,
+                            );
+                            return (
+                              <label key={player.id}>
+                                <input
+                                  type="checkbox"
+                                  checked={selected}
+                                  onChange={() => toggleFixedGoalkeeper(player.id)}
+                                />
+                                <Avatar name={player.name} />
+                                <span>{player.name}</span>
+                                {selected && <Check size={16} />}
+                              </label>
+                            );
+                          })
+                        ) : (
+                          <p>Marque os jogadores presentes para escolher os goleiros.</p>
+                        )}
+                      </div>
+                    )}
+                    <small>
+                      Escolha até um por time. Eles começarão no gol e serão separados no sorteio.
+                    </small>
+                  </div>
+                )}
+              </fieldset>
               {data.settings.drawMode === "manual" && (
                 <div className="manual-teams">
                   <header>
@@ -2505,39 +2934,6 @@ export default function Home() {
                   {setupMessage || "Marque pelo menos 2 jogadores presentes."}
                 </p>
               )}
-              <section className="last-leaders">
-                <header>
-                  <span>
-                    <Trophy size={18} />
-                  </span>
-                  <div>
-                    <strong>Destaques do último jogo</strong>
-                    <small>
-                      {data.history[0]
-                        ? new Date(
-                            data.history[0].finishedAt || data.history[0].date,
-                          ).toLocaleDateString("pt-BR")
-                        : "Aguardando a primeira partida"}
-                    </small>
-                  </div>
-                </header>
-                {lastMatchLeaders.length ? (
-                  <div>
-                    {lastMatchLeaders.map((leader, index) => (
-                      <div className="last-leader-row" key={leader.id}>
-                        <b>{index + 1}</b>
-                        <Avatar name={leader.name} />
-                        <span>{leader.name}</span>
-                        <strong>
-                          {leader.points} {scoreWord(data.history[0]?.sport, leader.points)}
-                        </strong>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p>Encerre uma partida com pontuação para ver o pódio aqui.</p>
-                )}
-              </section>
             </aside>
           </section>
         )}
@@ -2552,9 +2948,6 @@ export default function Home() {
                   {matchMessage || "A escalação continuará salva quando esta partida terminar."}
                 </small>
               </div>
-              <button className="button secondary" type="button" onClick={endSession}>
-                <X size={17} /> Encerrar resenha
-              </button>
             </div>
             <section className="match-score-hero" aria-label="Placar da partida">
               <div className="scoreboard">
@@ -2639,29 +3032,28 @@ export default function Home() {
                   key={team.name}
                   team={team}
                   scoreLabel={scoreAction(match.sport)}
-                  onGoal={() => {
+                  onGoal={(playerId) => {
                     setGoalTeam(teamIndex);
-                    setGoalScorer("");
+                    setGoalScorer(playerId);
                     setGoalAssist("");
                   }}
-                  onOwnGoal={() => {
+                  onOwnGoal={(playerId) => {
                     setIncident({ type: "own_goal", teamIndex });
-                    setIncidentPlayer("");
+                    setIncidentPlayer(playerId);
                   }}
-                  onMissedPenalty={() => {
+                  onMissedPenalty={(playerId) => {
                     setIncident({ type: "missed_penalty", teamIndex });
-                    setIncidentPlayer("");
+                    setIncidentPlayer(playerId);
                   }}
                   showFootballActions={sportKind(match.sport) === "football"}
-                  onSub={() => openSubstitution(teamIndex)}
+                  onSub={(playerId) => openSubstitution(teamIndex, playerId)}
+                  onGoalkeeperChange={() => openGoalkeeperChange(teamIndex)}
+                  onGoalkeeperAction={(type) => registerGoalkeeperAction(teamIndex, type)}
                 />
               ))}
               <aside className="events-card">
                 <header>
-                  <div>
-                    <span className="eyebrow">SÚMULA</span>
-                    <h2>Lances do jogo</h2>
-                  </div>
+                  <h2>Lances do jogo</h2>
                   <span className="event-count">{match.events.length}</span>
                 </header>
                 <div className="events-list">
@@ -2681,13 +3073,12 @@ export default function Home() {
                     ))
                   )}
                 </div>
-                <div className="finish-actions">
-                  <button className="button primary full" onClick={finishMatch}>
-                    <Check size={18} /> Salvar partida e continuar
+                <div className="finish-actions compact-finish-actions">
+                  <button className="button primary" onClick={finishMatch}>
+                    <Check size={16} /> Finalizar partida
                   </button>
-                  <small>A escalação e os times de fora serão mantidos.</small>
-                  <button className="text-button danger-text" onClick={cancelMatch}>
-                    Descartar partida e encerrar
+                  <button className="button secondary danger-finish" onClick={endSession}>
+                    <X size={16} /> Finalizar resenha
                   </button>
                 </div>
               </aside>
@@ -3046,7 +3437,7 @@ export default function Home() {
           </section>
         )}
 
-        {view === "training" && (
+        {false && view === "training" && (
           <section className="training-view">
             <div className="section-heading settings-heading">
               <div>
@@ -3377,7 +3768,7 @@ export default function Home() {
           </section>
         )}
 
-        {view === "training-stats" && (
+        {false && view === "training-stats" && (
           <section className="training-stats-view">
             <div className="section-heading stats-heading training-stats-heading">
               <div>
@@ -3510,10 +3901,7 @@ export default function Home() {
               <div>
                 <span className="eyebrow">A TABELA OFICIAL DA ZOEIRA</span>
                 <h1>Mural da Resenha</h1>
-                <p>
-                  Um placar público para a galera conferir rankings, próximos jogos e resultados —
-                  sem poder alterar nada.
-                </p>
+                <p>Escolha a modalidade, publique o link e deixe a classificação falar por si.</p>
               </div>
               <Globe2 size={46} />
             </div>
@@ -3539,6 +3927,22 @@ export default function Home() {
               </header>
               {publicConfig.page && (
                 <>
+                  <div className="field public-owner-sport">
+                    <label htmlFor="public-share-sport">Modalidade exibida neste link</label>
+                    <select
+                      id="public-share-sport"
+                      value={statsSport}
+                      onChange={(event) => setStatsSport(event.target.value)}
+                    >
+                      {Object.keys(SPORT_PRESETS).map((sport) => (
+                        <option key={sport}>{sport}</option>
+                      ))}
+                    </select>
+                    <small>
+                      Ao trocar, copie novamente o endereço. O visitante verá somente esta
+                      modalidade.
+                    </small>
+                  </div>
                   <div className="public-link-row">
                     <code>{publicPageUrl}</code>
                     <button className="button secondary" onClick={copyPublicLink}>
@@ -4109,6 +4513,39 @@ export default function Home() {
           </button>
         </Modal>
       )}
+      {goalkeeperTeam !== null && match && (
+        <Modal
+          onClose={() => setGoalkeeperTeam(null)}
+          icon={<Shield size={25} />}
+          color={match.teams[goalkeeperTeam].color}
+          title="Trocar goleiro"
+          text="Escolha um jogador da linha ou do banco. Se estiver no banco, ele entra e o goleiro atual sai."
+        >
+          <div className="field">
+            <label htmlFor="goalkeeper-candidate">Novo goleiro</label>
+            <select
+              id="goalkeeper-candidate"
+              value={goalkeeperCandidate}
+              onChange={(event) => setGoalkeeperCandidate(event.target.value)}
+            >
+              {[...match.teams[goalkeeperTeam].starters, ...match.teams[goalkeeperTeam].bench]
+                .filter((player) => player.id !== match.teams[goalkeeperTeam].goalkeeperId)
+                .map((player) => (
+                  <option key={player.id} value={player.id}>
+                    {player.name}
+                  </option>
+                ))}
+            </select>
+          </div>
+          <button
+            className="button primary large full"
+            disabled={!goalkeeperCandidate}
+            onClick={confirmGoalkeeperChange}
+          >
+            <Shield size={18} /> Confirmar novo goleiro
+          </button>
+        </Modal>
+      )}
       {teamSwapSide !== null && match && (
         <Modal
           onClose={() => setTeamSwapSide(null)}
@@ -4672,7 +5109,15 @@ function MatchEventRow({ event, match, onUndo }) {
   const isOwnGoal = event.type === "own_goal";
   const isMissedPenalty = event.type === "missed_penalty";
   const isSubstitution = event.type === "sub";
-  const canUndo = isGoal || isOwnGoal || isMissedPenalty;
+  const isGoalkeeperChange = event.type === "goalkeeper_change";
+  const goalkeeperLabels = {
+    goalkeeper_save: "Defesa",
+    goalkeeper_difficult_save: "Defesa difícil",
+    goalkeeper_penalty_save: "Pênalti defendido",
+    goalkeeper_error: "Falha do goleiro",
+  };
+  const isGoalkeeperAction = Boolean(goalkeeperLabels[event.type]);
+  const canUndo = isGoal || isOwnGoal || isMissedPenalty || isGoalkeeperAction;
   const team = match.teams[event.teamIndex];
   const benefitedTeam = isOwnGoal ? match.teams[event.teamIndex === 0 ? 1 : 0] : team;
 
@@ -4680,8 +5125,10 @@ function MatchEventRow({ event, match, onUndo }) {
     <div className={`event-row ${event.type}`}>
       <span className="event-minute">{event.minute}&apos;</span>
       <span className={`event-icon ${team?.color || "green"}`}>
-        {isSubstitution ? (
+        {isSubstitution || isGoalkeeperChange ? (
           <ArrowDownUp size={17} />
+        ) : isGoalkeeperAction ? (
+          <Shield size={17} />
         ) : isMissedPenalty ? (
           <X size={17} />
         ) : (
@@ -4716,6 +5163,20 @@ function MatchEventRow({ event, match, onUndo }) {
           <>
             <strong>Entrou {event.playerIn}</strong>
             <small>Saiu {event.playerOut}</small>
+          </>
+        )}
+        {isGoalkeeperChange && (
+          <>
+            <strong>{event.playerIn} assumiu o gol</strong>
+            <small>{event.playerOut} voltou para a linha ou banco</small>
+          </>
+        )}
+        {isGoalkeeperAction && (
+          <>
+            <strong>
+              {goalkeeperLabels[event.type]} · {event.playerName}
+            </strong>
+            <small>{team?.name || "Time"}</small>
           </>
         )}
       </div>
@@ -4804,7 +5265,15 @@ function TeamCard({
   onMissedPenalty,
   showFootballActions,
   onSub,
+  onGoalkeeperChange,
+  onGoalkeeperAction,
 }) {
+  const [openPlayerId, setOpenPlayerId] = useState(null);
+  const runPlayerAction = (action) => {
+    action();
+    setOpenPlayerId(null);
+  };
+
   return (
     <article className={`team-card ${team.color}`}>
       <header>
@@ -4812,22 +5281,109 @@ function TeamCard({
           <span className="team-dot" />
           <h2>{team.name}</h2>
         </div>
-        <button className="button goal-button" onClick={onGoal}>
-          <Plus size={18} /> {scoreLabel}
-        </button>
+        <small>Toque no jogador para registrar um lance</small>
       </header>
       <div className="roster-title">
         <span>Em jogo</span>
         <small>{team.starters.length} jogadores</small>
       </div>
       <div className="roster-list">
-        {team.starters.map((player) => (
-          <div className="roster-player" key={player.id}>
-            <Avatar name={player.name} />
-            <strong>{player.name}</strong>
-            <span className="field-status">em jogo</span>
-          </div>
-        ))}
+        {team.starters.map((player) => {
+          const isGoalkeeper = showFootballActions && player.id === team.goalkeeperId;
+          const menuOpen = openPlayerId === player.id;
+          return (
+            <div className={`player-action-row ${menuOpen ? "open" : ""}`} key={player.id}>
+              <button
+                className="player-action-trigger"
+                type="button"
+                onClick={() =>
+                  setOpenPlayerId((current) => (current === player.id ? null : player.id))
+                }
+                aria-expanded={menuOpen}
+              >
+                <Avatar name={player.name} />
+                <strong>{player.name}</strong>
+                <span className={`field-status ${isGoalkeeper ? "goalkeeper" : ""}`}>
+                  {isGoalkeeper ? "GOLEIRO" : "LINHA"}
+                </span>
+                <ChevronDown size={17} />
+              </button>
+              {menuOpen && (
+                <div className={`player-action-menu ${isGoalkeeper ? "goalkeeper-actions" : ""}`}>
+                  <small>{isGoalkeeper ? "Ações do goleiro" : "Ações do jogador"}</small>
+                  <div>
+                    <button type="button" onClick={() => runPlayerAction(() => onGoal(player.id))}>
+                      <Goal size={15} /> Registrar {scoreLabel.toLowerCase()}
+                    </button>
+                    {isGoalkeeper && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            runPlayerAction(() => onGoalkeeperAction("goalkeeper_save"))
+                          }
+                        >
+                          <Shield size={15} /> Defesa
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            runPlayerAction(() => onGoalkeeperAction("goalkeeper_difficult_save"))
+                          }
+                        >
+                          <Shield size={15} /> Defesa difícil
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            runPlayerAction(() => onGoalkeeperAction("goalkeeper_penalty_save"))
+                          }
+                        >
+                          <Check size={15} /> Pegou pênalti
+                        </button>
+                        <button
+                          className="negative-action"
+                          type="button"
+                          onClick={() =>
+                            runPlayerAction(() => onGoalkeeperAction("goalkeeper_error"))
+                          }
+                        >
+                          <X size={15} /> Falha
+                        </button>
+                        <button type="button" onClick={() => runPlayerAction(onGoalkeeperChange)}>
+                          <ArrowDownUp size={15} /> Trocar goleiro
+                        </button>
+                      </>
+                    )}
+                    {showFootballActions && (
+                      <>
+                        <button
+                          className="negative-action"
+                          type="button"
+                          onClick={() => runPlayerAction(() => onOwnGoal(player.id))}
+                        >
+                          <Goal size={15} /> Gol contra
+                        </button>
+                        <button
+                          className="negative-action"
+                          type="button"
+                          onClick={() => runPlayerAction(() => onMissedPenalty(player.id))}
+                        >
+                          <X size={15} /> Pênalti perdido
+                        </button>
+                      </>
+                    )}
+                    {!isGoalkeeper && team.bench.length > 0 && (
+                      <button type="button" onClick={() => runPlayerAction(() => onSub(player.id))}>
+                        <ArrowDownUp size={15} /> Substituir jogador
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
       <div className="bench-box">
         <div className="roster-title">
@@ -4845,19 +5401,6 @@ function TeamCard({
           <p className="empty-bench">Nenhum reserva neste time.</p>
         )}
       </div>
-      {showFootballActions && (
-        <div className="match-incident-actions">
-          <button className="button secondary" type="button" onClick={onOwnGoal}>
-            <Goal size={16} /> Gol contra
-          </button>
-          <button className="button secondary" type="button" onClick={onMissedPenalty}>
-            <X size={16} /> Pênalti perdido
-          </button>
-        </div>
-      )}
-      <button className="button secondary full" onClick={onSub} disabled={!team.bench.length}>
-        <ArrowDownUp size={18} /> Fazer substituição
-      </button>
     </article>
   );
 }

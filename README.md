@@ -26,15 +26,20 @@ Se uma tentativa antiga deixou uma pasta `node_modules` incompleta, apague somen
 - registro de presença no histórico de cada jogo;
 - sorteio aleatório, equilibrado pelo desempenho ou divisão manual dos times;
 - lista de jogadores com 10 nomes por página, sem recarregar o site;
-- pódio dos três melhores pontuadores do último jogo;
+- goleiros fixos opcionais no dia, separados automaticamente entre os times;
+- escolha de goleiro fixo em lista recolhível, sem ocupar espaço permanente na configuração;
 - tempo e quantidade de titulares configuráveis;
 - cronômetro regressivo, placar, autor dos gols e assistências;
 - placar ampliado com faixa de autores, minutos e assistências das pontuações;
 - registro de gol contra e pênalti perdido, com correção pela súmula;
 - titulares, banco, substituições e até 4 times de fora durante a resenha;
+- troca de goleiro com atleta da linha ou do banco e registro do tempo na posição;
+- menu individual de lances ao tocar em cada titular, adaptado para jogador de linha ou goleiro;
+- avaliação de goleiro por defesas, defesas difíceis, pênaltis defendidos, gols sofridos e falhas;
 - salvamento de cada partida sem perder a escalação, deixando a rodada seguinte pronta;
 - troca de um time completo por outro da fila e encerramento separado da sessão;
 - súmula com minuto de cada lance e botão visível para anular uma pontuação lançada por engano;
+- finalização compacta da partida ou da resenha logo abaixo dos lances do jogo;
 - histórico de partidas e artilharia separada por mês;
 - salvamento automático no navegador;
 - sincronização com Supabase entre celulares, organizada dentro das configurações;
@@ -55,13 +60,11 @@ Se uma tentativa antiga deixou uma pasta `node_modules` incompleta, apague somen
 - Futebol, Futebol Society e Futebol de Salão com rankings geral, de assistências e de gols;
 - Vôlei com ranking exclusivo de pontos e Basquete com ranking de cestas;
 - configuração automática de jogadores e tempo ao selecionar cada modalidade, mantendo os campos editáveis;
-- modo treino com cronograma semanal, exercícios por tempo ou repetições e histórico de atividades concluídas;
-- exercícios cronometrados em segundos, minutos ou horas;
-- checklist e cronômetro independente para cada exercício;
-- página de estatísticas de treino com frequência, volume, tempo e repetições.
 - sincronização incremental: um novo gol cria somente o registro daquele lance, sem reenviar o histórico;
 - histórico carregado em páginas de 10 partidas;
-- Mural da Resenha somente para leitura, com ranking por esporte, próximos jogos e resultados;
+- Mural da Resenha somente para leitura, com link travado por modalidade, destaques, média por jogo, próximos jogos e resultados;
+- próximo jogo destacado no Mural em um card esportivo responsivo para computador, tablet e celular;
+- súmula pública expansível com minuto, autores e acontecimentos de cada partida;
 - classificação completa por esporte com pontuações, assistências, presenças e avaliação geral;
 - estatísticas organizadas em páginas internas separadas para classificação, pontuadores e resultados.
 
@@ -109,6 +112,8 @@ Ao selecionar uma modalidade, o aplicativo preenche automaticamente a quantidade
 ## Como funciona a avaliação
 
 Cada presença começa com nota 6,0. Futebol soma 0,8 por gol e 0,5 por assistência; Vôlei soma 0,35 por ponto; Basquete soma 0,25 por cesta; as demais modalidades somam 0,5 por ponto. O resultado acrescenta 0,4 na vitória ou 0,2 no empate e desconta 0,2 na derrota. Gol contra desconta 0,5 e pênalti perdido desconta 0,3. A nota permanece entre 0 e 10. A avaliação geral é a média das partidas e vira estrelas: abaixo de 6 vale 1; de 6 a 6,9 vale 2; de 7 a 7,9 vale 3; de 8 a 8,9 vale 4; e a partir de 9 vale 5.
+
+Quando um jogador atua no gol, a nota também soma 0,1 por defesa, mais 0,2 por defesa difícil e mais 0,6 por pênalti defendido. Falha desconta 0,4 e cada gol sofrido desconta 0,1, limitado a 0,4 por partida. Se não sofrer gol, recebe até 0,5 proporcionalmente ao tempo na posição. A média específica de goleiro é ponderada pelos minutos efetivamente jogados no gol.
 
 O cadastro guarda partidas avaliadas, pontuações, assistências, soma das notas e média geral. Na primeira abertura desta versão, os acumulados são reconstruídos automaticamente usando todo o histórico da conta. O sorteio equilibrado usa a média numérica completa; jogadores ainda sem partida entram provisoriamente com nota neutra 6,0.
 

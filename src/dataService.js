@@ -16,9 +16,6 @@ const coreOf = (state) => ({
   profile: state.profile,
   players: state.players,
   settings: state.settings,
-  trainingPlans: state.trainingPlans || [],
-  trainingHistory: state.trainingHistory || [],
-  activeTraining: state.activeTraining || null,
 });
 const eventsOf = (state) => {
   const result = [];

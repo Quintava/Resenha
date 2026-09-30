@@ -1,8 +1,18 @@
-import { useEffect, useState } from "react";
-import { CalendarDays, Goal, LoaderCircle, MapPin, Medal, Trophy } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  CalendarDays,
+  ChevronDown,
+  Clock3,
+  Goal,
+  LoaderCircle,
+  MapPin,
+  Medal,
+  Shield,
+  Sparkles,
+  Trophy,
+} from "lucide-react";
 import { getPublicPage, HISTORY_PAGE_SIZE } from "./dataService";
 
-// Lista fixa para impedir parâmetros de modalidade inesperados na consulta pública.
 const SPORTS = ["Futebol", "Futebol Society", "Futebol de Salão", "Vôlei", "Basquete", "Handebol"];
 const sportKind = (sport) =>
   ["Futebol", "Futebol Society", "Futebol de Salão"].includes(sport)
@@ -19,18 +29,39 @@ const scoreLabel = (sport) =>
       ? "Pontos"
       : "Gols";
 
+function eventLabel(event, sport) {
+  const point =
+    sportKind(sport) === "basketball"
+      ? "Cesta"
+      : sportKind(sport) === "volleyball"
+        ? "Ponto"
+        : "Gol";
+  if (event.type === "goal")
+    return `${point} de ${event.playerName}${event.assistPlayerName ? ` · assistência de ${event.assistPlayerName}` : ""}`;
+  if (event.type === "own_goal") return `Gol contra de ${event.playerName}`;
+  if (event.type === "missed_penalty") return `Pênalti perdido por ${event.playerName}`;
+  if (event.type === "sub") return `${event.playerIn} entrou · ${event.playerOut} saiu`;
+  if (event.type === "goalkeeper_change") return `${event.playerIn} assumiu o gol`;
+  const goalkeeper = {
+    goalkeeper_save: "Defesa",
+    goalkeeper_difficult_save: "Defesa difícil",
+    goalkeeper_penalty_save: "Pênalti defendido",
+    goalkeeper_error: "Falha do goleiro",
+  };
+  return goalkeeper[event.type]
+    ? `${goalkeeper[event.type]} · ${event.playerName}`
+    : "Lance registrado";
+}
+
 export default function PublicPage({ slug }) {
-  // O filtro pode vir no link compartilhado, mas sempre é validado contra SPORTS.
-  const initialSport =
+  // A modalidade pertence ao link compartilhado; visitantes não podem alterá-la.
+  const requestedSport =
     new URLSearchParams(window.location.search).get("esporte") || "Futebol de Salão";
-  const [sport, setSport] = useState(
-    SPORTS.includes(initialSport) ? initialSport : "Futebol de Salão",
-  );
+  const sport = SPORTS.includes(requestedSport) ? requestedSport : "Futebol de Salão";
   const [content, setContent] = useState(null);
   const [status, setStatus] = useState("loading");
   const [loadingMore, setLoadingMore] = useState(false);
 
-  // Recarrega apenas o conteúdo da modalidade, mantendo a página aberta.
   useEffect(() => {
     setStatus("loading");
     getPublicPage(slug, 0, sport)
@@ -41,7 +72,42 @@ export default function PublicPage({ slug }) {
       .catch(() => setStatus("error"));
   }, [slug, sport]);
 
-  // Paginação incremental dos resultados públicos.
+  const highlights = useMemo(() => {
+    const ranking = content?.ranking || [];
+    const best = (field) =>
+      [...ranking].sort((a, b) => Number(b[field] || 0) - Number(a[field] || 0))[0];
+    return [
+      {
+        label: "Líder geral",
+        player: best("evaluation"),
+        value: (player) => `${Number(player.evaluation).toFixed(1)} de nota`,
+        icon: <Trophy size={20} />,
+      },
+      {
+        label: `Mais ${scoreLabel(sport).toLowerCase()}`,
+        player: best("goals"),
+        value: (player) => `${player.goals} ${scoreLabel(sport).toLowerCase()}`,
+        icon: <Goal size={20} />,
+      },
+      ...(sportKind(sport) === "football"
+        ? [
+            {
+              label: "Garçom da turma",
+              player: best("assists"),
+              value: (player) => `${player.assists} assistências`,
+              icon: <Sparkles size={20} />,
+            },
+          ]
+        : []),
+      {
+        label: "Paredão",
+        player: best("saves"),
+        value: (player) => `${player.saves || 0} defesas`,
+        icon: <Shield size={20} />,
+      },
+    ];
+  }, [content, sport]);
+
   const loadMore = async () => {
     setLoadingMore(true);
     const next = await getPublicPage(slug, content.results.length, sport);
@@ -53,7 +119,6 @@ export default function PublicPage({ slug }) {
     setLoadingMore(false);
   };
 
-  // Estados próprios evitam mostrar uma página incompleta ou desativada.
   if (status === "loading")
     return (
       <main className="public-page public-loading">
@@ -69,28 +134,40 @@ export default function PublicPage({ slug }) {
         <p>O link não existe ou o mural foi desativado.</p>
       </main>
     );
+
   const football = sportKind(sport) === "football";
+  const upcoming = content.upcoming.filter((game) => game.sport === sport);
   return (
     <main className="public-page">
-      <header className="public-header">
+      <header className="public-header public-header-v2">
         <span className="brand-mark">
           <Goal size={25} />
         </span>
         <div>
           <small>A TABELA OFICIAL DA ZOEIRA</small>
           <h1>Mural da Resenha</h1>
-          <p>{content.page.title} · resultados e classificação para todo mundo conferir.</p>
+          <p>{sport} · números, histórias e aquela disputa saudável.</p>
         </div>
-        <label className="public-sport-filter">
-          <span>Modalidade</span>
-          <select value={sport} onChange={(event) => setSport(event.target.value)}>
-            {SPORTS.map((item) => (
-              <option key={item}>{item}</option>
-            ))}
-          </select>
-        </label>
+        <span className="public-sport-badge">{sport}</span>
       </header>
-      <section className="public-grid">
+
+      {content.ranking.length > 0 && (
+        <section className="public-highlights" aria-label="Destaques da modalidade">
+          {highlights.map(
+            ({ label, player, value, icon }) =>
+              player && (
+                <article key={label}>
+                  <span>{icon}</span>
+                  <small>{label}</small>
+                  <strong>{player.name}</strong>
+                  <em>{value(player)}</em>
+                </article>
+              ),
+          )}
+        </section>
+      )}
+
+      <section className="public-grid public-grid-v2">
         <article className="public-card public-ranking">
           <header>
             <Trophy size={21} />
@@ -109,6 +186,7 @@ export default function PublicPage({ slug }) {
                     <th>{scoreLabel(sport)}</th>
                     {football && <th>Assist.</th>}
                     <th>Jogos</th>
+                    <th>Média/jogo</th>
                     <th>Nota</th>
                   </tr>
                 </thead>
@@ -130,6 +208,9 @@ export default function PublicPage({ slug }) {
                         {football && <td>{player.assists}</td>}
                         <td>{player.games}</td>
                         <td>
+                          <b>{Number(player.average || 0).toFixed(2)}</b>
+                        </td>
+                        <td>
                           <b>{Number(player.evaluation).toFixed(1)}</b>
                         </td>
                       </tr>
@@ -142,65 +223,127 @@ export default function PublicPage({ slug }) {
             <p>Nenhuma partida de {sport} registrada.</p>
           )}
         </article>
-        <article className="public-card">
+
+        <article className="public-card public-upcoming-card">
           <header>
             <CalendarDays size={21} />
             <div>
-              <small>AGENDA</small>
-              <h2>Próximos jogos</h2>
+              <small>AGENDA DA GALERA</small>
+              <h2>Próxima resenha</h2>
             </div>
           </header>
-          {content.upcoming.length ? (
-            content.upcoming.map((game) => (
-              <div className="upcoming-public-row" key={game.id}>
-                <span className="public-date">
-                  <b>
-                    {new Date(game.scheduled_at).toLocaleDateString("pt-BR", { day: "2-digit" })}
-                  </b>
+          {upcoming.length ? (
+            <>
+              <section className="next-game-featured">
+                <span className="next-game-date">
                   <small>
-                    {new Date(game.scheduled_at).toLocaleDateString("pt-BR", { month: "short" })}
-                  </small>
-                </span>
-                <div>
-                  <strong>{game.title}</strong>
-                  <small>
-                    {game.sport} ·{" "}
-                    {new Date(game.scheduled_at).toLocaleTimeString("pt-BR", {
-                      hour: "2-digit",
-                      minute: "2-digit",
+                    {new Date(upcoming[0].scheduled_at).toLocaleDateString("pt-BR", {
+                      weekday: "short",
                     })}
                   </small>
-                  {game.location && (
-                    <em>
-                      <MapPin size={13} /> {game.location}
-                    </em>
-                  )}
+                  <b>
+                    {new Date(upcoming[0].scheduled_at).toLocaleDateString("pt-BR", {
+                      day: "2-digit",
+                    })}
+                  </b>
+                  <em>
+                    {new Date(upcoming[0].scheduled_at).toLocaleDateString("pt-BR", {
+                      month: "short",
+                    })}
+                  </em>
+                </span>
+                <div className="next-game-info">
+                  <span className="next-game-live">PRÓXIMO JOGO</span>
+                  <h3>{upcoming[0].title}</h3>
+                  <div>
+                    <span>
+                      <Clock3 size={15} />
+                      {new Date(upcoming[0].scheduled_at).toLocaleTimeString("pt-BR", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </span>
+                    {upcoming[0].location && (
+                      <span>
+                        <MapPin size={15} /> {upcoming[0].location}
+                      </span>
+                    )}
+                  </div>
+                  <strong>{sport}</strong>
                 </div>
-              </div>
-            ))
+              </section>
+              {upcoming.length > 1 && (
+                <div className="next-games-list">
+                  <small>DEPOIS DESSA</small>
+                  {upcoming.slice(1).map((game) => (
+                    <div className="upcoming-public-row" key={game.id}>
+                      <span className="public-date">
+                        <b>
+                          {new Date(game.scheduled_at).toLocaleDateString("pt-BR", {
+                            day: "2-digit",
+                          })}
+                        </b>
+                        <small>
+                          {new Date(game.scheduled_at).toLocaleDateString("pt-BR", {
+                            month: "short",
+                          })}
+                        </small>
+                      </span>
+                      <div>
+                        <strong>{game.title}</strong>
+                        <small>
+                          {new Date(game.scheduled_at).toLocaleTimeString("pt-BR", {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </small>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
           ) : (
             <p>Nenhum próximo jogo informado.</p>
           )}
         </article>
+
         <article className="public-card public-results">
           <header>
             <Goal size={21} />
             <div>
               <small>HISTÓRICO · {sport.toUpperCase()}</small>
-              <h2>Resultados</h2>
+              <h2>Partidas e súmulas</h2>
             </div>
           </header>
           {content.results.length ? (
-            <div>
+            <div className="public-result-list">
               {content.results.map((game) => (
-                <div className="public-result-row" key={game.id}>
-                  <span>{new Date(game.finishedAt || game.date).toLocaleDateString("pt-BR")}</span>
-                  <strong>
-                    {game.teams?.[0]?.short || "T1"} {game.score?.[0] || 0} × {game.score?.[1] || 0}{" "}
-                    {game.teams?.[1]?.short || "T2"}
-                  </strong>
-                  <small>Partida {game.roundNumber || "—"}</small>
-                </div>
+                <details className="public-result-details" key={game.id}>
+                  <summary>
+                    <span>
+                      {new Date(game.finishedAt || game.date).toLocaleDateString("pt-BR")}
+                    </span>
+                    <strong>
+                      {game.teams?.[0]?.short || "T1"} {game.score?.[0] || 0} ×{" "}
+                      {game.score?.[1] || 0} {game.teams?.[1]?.short || "T2"}
+                    </strong>
+                    <small>Partida {game.roundNumber || "—"}</small>
+                    <ChevronDown size={17} />
+                  </summary>
+                  <div className="public-event-timeline">
+                    {(game.events || []).length ? (
+                      [...game.events].reverse().map((event) => (
+                        <div key={event.id}>
+                          <b>{event.minute || 1}&apos;</b>
+                          <span>{eventLabel(event, sport)}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <p>Esta partida não possui lances registrados.</p>
+                    )}
+                  </div>
+                </details>
               ))}
             </div>
           ) : (
@@ -216,7 +359,7 @@ export default function PublicPage({ slug }) {
       <footer className="site-footer">
         <strong>Resenha</strong>
         <span>Criado e desenvolvido por Adriel Alves Quintava.</span>
-        <small>Mural público em modo somente leitura.</small>
+        <small>Projeto em evolução — feito para a resenha ficar ainda melhor.</small>
       </footer>
     </main>
   );
