@@ -447,6 +447,52 @@ button {
   background: #f5fcf9;
   box-shadow: 0 0 0 2px rgba(13, 143, 103, 0.07);
 }
+.shared-bench-option {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  gap: 11px;
+  margin: 0 0 19px;
+  padding: 13px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  cursor: pointer;
+}
+.shared-bench-option > input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.shared-bench-check {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 2px solid var(--line);
+  border-radius: 7px;
+  background: var(--paper);
+  color: #fff;
+}
+.shared-bench-option:has(input:checked) {
+  border-color: var(--green);
+  background: var(--green-soft);
+}
+.shared-bench-option input:checked + .shared-bench-check {
+  border-color: var(--green);
+  background: var(--green);
+}
+.shared-bench-option strong,
+.shared-bench-option small {
+  display: block;
+}
+.shared-bench-option small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.66rem;
+  line-height: 1.45;
+}
 .mode > span {
   width: 38px;
   height: 38px;
@@ -4864,6 +4910,19 @@ button {
 .session-bar small {
   display: block;
 }
+.bench-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: 0 0 auto;
+  padding: 8px 11px;
+  border: 1px solid rgb(13 143 103 / 0.25);
+  border-radius: 999px;
+  background: var(--green-soft);
+  color: var(--green-dark);
+  font-size: 0.67rem;
+  font-weight: 850;
+}
 .session-bar strong {
   margin-top: 3px;
   font-size: 1.02rem;
@@ -4936,6 +4995,49 @@ button {
 .reserve-team .button {
   min-height: 36px;
   font-size: 0.65rem;
+}
+.shared-bench-roster {
+  margin-top: 18px;
+  padding: 17px 19px;
+  border: 1px solid rgb(13 143 103 / 0.25);
+  border-radius: 18px;
+  background: var(--green-soft);
+}
+.shared-bench-roster > header {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.shared-bench-roster h2 {
+  margin: 3px 0 0;
+  font-size: 1.05rem;
+}
+.shared-bench-roster > header > small,
+.shared-bench-roster > div > p {
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+.shared-bench-roster > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.shared-bench-roster > div > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper);
+  font-size: 0.7rem;
+}
+.shared-bench-roster .avatar {
+  width: 25px;
+  height: 25px;
+  font-size: 0.57rem;
 }
 .team-dot.green,
 .reserve-team.green .team-dot,
@@ -5544,6 +5646,7 @@ tr.bottom-rank {
 }
 :root[data-theme="dark"] .session-bar,
 :root[data-theme="dark"] .reserve-teams,
+:root[data-theme="dark"] .shared-bench-roster,
 :root[data-theme="dark"] .reserve-choice,
 :root[data-theme="dark"] .stats-sections,
 :root[data-theme="dark"] .ranking-table-card {
@@ -5582,6 +5685,10 @@ tr.bottom-rank {
     width: 100%;
   }
   .reserve-teams > header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .shared-bench-roster > header {
     align-items: flex-start;
     flex-direction: column;
   }

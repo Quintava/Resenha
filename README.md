@@ -38,6 +38,9 @@ Se uma tentativa antiga deixou uma pasta `node_modules` incompleta, apague somen
 - avaliação de goleiro por defesas, defesas difíceis, pênaltis defendidos, gols sofridos e falhas;
 - salvamento de cada partida sem perder a escalação, deixando a rodada seguinte pronta;
 - troca de um time completo por outro da fila e encerramento separado da sessão;
+- opção de reservas vinculados, em que cada time utiliza somente o próprio banco;
+- opção de **Banco geral da resenha**, liberando qualquer reserva para substituições manuais nos dois times;
+- banco geral destacado na partida e disponível também durante a troca manual de goleiro;
 - súmula com minuto de cada lance e botão visível para anular uma pontuação lançada por engano;
 - finalização compacta da partida ou da resenha logo abaixo dos lances do jogo;
 - histórico de partidas e artilharia separada por mês;
@@ -75,7 +78,16 @@ O login depende do Supabase. Para configurar o banco e a autenticação, siga o 
 
 ## Organização do código
 
-- `src/App.jsx`: regras do aplicativo, navegação e componentes da área autenticada;
+- `src/App.jsx`: ponto de entrada visual; apenas monta a página `<ResenhaApp />`;
+- `src/pages/ResenhaApp.jsx`: coordena estado, navegação e os fluxos autenticados;
+- `src/components/auth/`: login, cadastro e recuperação de senha;
+- `src/components/layout/`: menu, cabeçalho, perfil e rodapé;
+- `src/components/match/`: placar, times, jogadores e lances da partida;
+- `src/components/stats/`: classificação e tabelas de desempenho;
+- `src/components/common/`: peças reutilizáveis, como modal, avatar e paginação;
+- `src/config/`: valores iniciais, modalidades e constantes do aplicativo;
+- `src/domain/`: regras de avaliação, estado, esportes e montagem dos times;
+- `src/utils/`: funções genéricas de data, cronômetro e identificação;
 - `src/PublicPage.jsx`: Mural da Resenha, público e somente para leitura;
 - `src/dataService.js`: leitura, paginação e sincronização incremental com o Supabase;
 - `src/supabase.js`: criação e configuração segura do cliente Supabase;
@@ -84,6 +96,7 @@ O login depende do Supabase. Para configurar o banco e a autenticação, siga o 
 - `public/`: ícones, manifesto e arquivos estáticos.
 
 Os comentários indicam responsabilidades, regras de negócio e pontos de segurança sem repetir instruções óbvias.
+Consulte também `ARQUITETURA.md` antes de criar uma nova tela ou regra.
 
 Para conferir a formatação sem alterar arquivos:
 
