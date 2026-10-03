@@ -3,6 +3,8 @@ export const LEGACY_STORAGE_KEY = "pelada-da-semana-v4";
 export const USER_STORAGE_PREFIX = "pelada-da-semana-user";
 export const MIGRATION_OWNER_KEY = "pelada-da-semana-legacy-owner";
 export const THEME_KEY = "pelada-da-semana-theme";
+export const DEFAULT_GROUP_ID = "default";
+export const ACTIVE_GROUP_PREFIX = "resenha-active-group";
 
 // A ordem define quais times entram primeiro em quadra.
 export const TEAM_META = [
@@ -21,7 +23,6 @@ export const SPORT_PRESETS = {
   "Futebol de Salão": { players: 5, duration: 10 },
   Vôlei: { players: 2, duration: 15 },
   Basquete: { players: 5, duration: 10 },
-  Handebol: { players: 7, duration: 20 },
 };
 
 export const PLAYER_PAGE_SIZE = 10;
@@ -42,6 +43,8 @@ export const initialState = {
     attendanceIds: [],
     hasFixedGoalkeepers: false,
     fixedGoalkeeperIds: [],
+    academyMonthlyFee: "",
+    academyDueDay: "",
   },
   activeMatch: null,
   history: [],

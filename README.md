@@ -1,5 +1,16 @@
 # Resenha
 
+## Grupos independentes
+
+Uma única conta pode administrar até 20 grupos, turmas ou equipes. Cada grupo possui jogadores,
+presenças, escalações, partidas, rankings, estatísticas, agenda e Mural da Resenha próprios. Os
+dados das versões anteriores são preservados automaticamente no **Grupo principal** após
+a execução do `supabase/schema.sql` atualizado.
+
+Cada organização pertence a uma área de gestão. Ao abrir **Amador**, aparecem somente os grupos
+amadores; ao abrir **Escolinha**, aparecem apenas as turmas e escolinhas. Os dados nunca são
+misturados entre os dois ambientes. **Campeonato** está sinalizado como recurso futuro.
+
 Site em React para organizar jogos com amigos, controlar a partida e fechar a artilharia de cada mês.
 
 ## Como executar
@@ -17,6 +28,11 @@ Se uma tentativa antiga deixou uma pasta `node_modules` incompleta, apague somen
 
 ## Recursos
 
+- administração interna separada por Amador e Escolinha, sem sair das Configurações;
+- suspensão temporária de atletas amadores, removendo-os das convocações e classificações;
+- ficha privada da Escolinha com dados técnicos, físicos, médicos e contato de emergência;
+- acesso rápido às fichas dos jogadores durante a partida;
+- Escolinha limitada às modalidades Futebol, Futebol Society e Futebol de Salão;
 - cadastro de jogadores sem avaliação manual;
 - nível geral automático de 1 a 5 estrelas, baseado em uma avaliação esportiva de 0 a 10;
 - avaliação acumulada salva no cadastro, considerando inclusive as partidas antigas;
@@ -75,6 +91,7 @@ Se uma tentativa antiga deixou uma pasta `node_modules` incompleta, apague somen
 - estatísticas organizadas em páginas internas separadas para classificação, pontuadores e resultados.
 
 O login depende do Supabase. Para configurar o banco e a autenticação, siga o arquivo `CONFIGURAR_SUPABASE.md`.
+Para publicar com domínio próprio, HTTPS e cabeçalhos de produção, siga `PUBLICAR_PRODUCAO.md`.
 
 ## Organização do código
 
@@ -118,12 +135,16 @@ npm run format
 - nenhuma chave `service_role` ou `sb_secret_` deve ser colocada no GitHub;
 - backups importados são validados, possuem limite de 2 MB e exigem confirmação;
 - o HTML inclui uma política de conteúdo que bloqueia scripts e conexões fora das origens permitidas.
+- a troca de senha reautentica a senha atual antes da alteração;
+- o cache local da conta é removido ao sair;
+- o banco rejeita identificadores e payloads fora dos limites esperados;
+- a hospedagem compatível recebe CSP, HSTS, proteção contra iframe e política de permissões por cabeçalhos HTTP.
 
 Ao atualizar uma instalação existente, execute novamente todo o conteúdo de `supabase/schema.sql` no SQL Editor. O script cria tabelas novas sem apagar `app_state`; a migração ocorre automaticamente no primeiro login.
 
 ## Sugestões automáticas por esporte
 
-Ao selecionar uma modalidade, o aplicativo preenche automaticamente a quantidade de jogadores em jogo e a duração sugerida: Futebol (11 e 20 minutos), Futebol Society (5 e 10 minutos), Futebol de Salão (5 e 10 minutos), Vôlei (2 e 15 minutos), Basquete (5 e 10 minutos) e Handebol (7 e 20 minutos). Esses dois campos continuam editáveis.
+Ao selecionar uma modalidade, o aplicativo preenche automaticamente a quantidade de jogadores em jogo e a duração sugerida: Futebol (11 e 20 minutos), Futebol Society (5 e 10 minutos), Futebol de Salão (5 e 10 minutos), Vôlei (2 e 15 minutos) e Basquete (5 e 10 minutos). Esses dois campos continuam editáveis.
 
 ## Como funciona a avaliação
 

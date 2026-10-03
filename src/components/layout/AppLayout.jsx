@@ -1,14 +1,17 @@
 import {
   Activity,
   BarChart3,
+  Bell,
+  CalendarDays,
   ChevronDown,
   Globe2,
-  Goal,
   KeyRound,
   LogOut,
   Menu,
   Moon,
+  Plus,
   Settings,
+  CircleDollarSign,
   Sun,
   TrendingUp,
   UserRound,
@@ -17,11 +20,14 @@ import {
 
 import { ProfileAvatar } from "../common/Common";
 
+const brandIconSrc = `${import.meta.env.BASE_URL}assets/icone-bola-resenha.webp`;
+const developerEmblemSrc = `${import.meta.env.BASE_URL}assets/emblema-resenha.webp`;
+
 const navigation = [
   { id: "setup", icon: Users, title: "Preparar jogo", detail: "Presença e divisão dos times" },
   { id: "match", icon: Activity, title: "Partida", detail: "Rodadas, placar e times de fora" },
   { id: "stats", icon: BarChart3, title: "Estatísticas", detail: "Classificação por modalidade" },
-  { id: "mural", icon: Globe2, title: "Mural da Resenha", detail: "Ranking público e agenda" },
+  { id: "mural", icon: Globe2, title: "Portal público", detail: "Ranking, agenda e resultados" },
   { id: "evolution", icon: TrendingUp, title: "Evolução", detail: "Desempenho de cada jogador" },
 ];
 
@@ -43,16 +49,23 @@ export function Topbar({
   onOpenSettings,
   onOpenPassword,
   onSignOut,
+  academyMode = false,
+  notifications = [],
+  notificationsOpen,
+  setNotificationsOpen,
+  notificationsRef,
+  unreadNotifications = 0,
+  onNotificationsRead,
 }) {
   return (
     <header className="topbar">
       <button className="brand" onClick={() => onNavigate("setup")} aria-label="Ir para o início">
         <span className="brand-mark">
-          <Goal size={24} />
+          <img src={brandIconSrc} alt="" aria-hidden="true" />
         </span>
         <span>
           <strong>Resenha</strong>
-          <small>Onde o jogo termina e a resenha começa.</small>
+          <small>Organização para cada partida.</small>
         </span>
       </button>
 
@@ -60,7 +73,11 @@ export function Topbar({
         <div className="app-menu-area" ref={menuRef}>
           <button
             className="menu-trigger"
-            onClick={() => setMenuOpen((current) => !current)}
+            onClick={() => {
+              setMenuOpen((current) => !current);
+              setNotificationsOpen(false);
+              setProfileOpen(false);
+            }}
             aria-expanded={menuOpen}
             aria-haspopup="menu"
           >
@@ -94,10 +111,80 @@ export function Topbar({
           {theme === "dark" ? <Sun size={19} /> : <Moon size={19} />}
         </button>
 
+        {academyMode && (
+          <div className="notification-area" ref={notificationsRef}>
+            <button
+              className="icon-button notification-trigger"
+              onClick={() => {
+                onNotificationsRead();
+                setNotificationsOpen((current) => !current);
+                setMenuOpen(false);
+                setProfileOpen(false);
+              }}
+              aria-label={`Notificações não lidas do Modo Treinador: ${unreadNotifications}`}
+              aria-expanded={notificationsOpen}
+              aria-haspopup="dialog"
+            >
+              <img
+                className="notification-emblem"
+                src={developerEmblemSrc}
+                alt=""
+                aria-hidden="true"
+              />
+              {unreadNotifications > 0 && (
+                <span className="notification-count">{unreadNotifications}</span>
+              )}
+            </button>
+            {notificationsOpen && (
+              <section className="notification-dropdown" aria-label="Notificações do treinador">
+                <header>
+                  <div>
+                    <strong>Notificações</strong>
+                    <small>Informações importantes dos atletas</small>
+                  </div>
+                  <span>{notifications.length}</span>
+                </header>
+                <div className="notification-list">
+                  {notifications.length === 0 ? (
+                    <div className="notification-empty">
+                      <Bell size={20} />
+                      <span>Nenhum aviso no momento.</span>
+                    </div>
+                  ) : (
+                    notifications.slice(0, 4).map((notification) => {
+                      const Icon =
+                        notification.type === "birthday" ? CalendarDays : CircleDollarSign;
+                      return (
+                        <article
+                          className={`notification-item ${notification.type}`}
+                          key={notification.id}
+                        >
+                          <span className="notification-item-icon">
+                            <Icon size={17} />
+                          </span>
+                          <div>
+                            <strong>{notification.title}</strong>
+                            <p>{notification.message}</p>
+                            <small>{notification.dateLabel}</small>
+                          </div>
+                        </article>
+                      );
+                    })
+                  )}
+                </div>
+              </section>
+            )}
+          </div>
+        )}
+
         <div className="profile-area" ref={profileRef}>
           <button
             className="profile-trigger"
-            onClick={() => setProfileOpen((current) => !current)}
+            onClick={() => {
+              setProfileOpen((current) => !current);
+              setMenuOpen(false);
+              setNotificationsOpen(false);
+            }}
             aria-expanded={profileOpen}
             aria-haspopup="menu"
           >
@@ -143,6 +230,78 @@ export function Topbar({
   );
 }
 
+export function GroupBar({
+  groups,
+  activeGroupId,
+  onChange,
+  onCreate,
+  busy,
+  managementMode,
+  onModeChange,
+}) {
+  return (
+    <div className="group-context-bar" aria-label="Contexto de trabalho">
+      <div className="mode-switch-cards" role="group" aria-label="Modo de gestão">
+        <button
+          className={managementMode === "amateur" ? "active" : ""}
+          onClick={() => onModeChange("amateur")}
+          type="button"
+        >
+          <span className="mode-card-art amateur-art" aria-hidden="true">
+            <img src={`${import.meta.env.BASE_URL}assets/ranking-futebol.webp`} alt="" />
+            <img src={`${import.meta.env.BASE_URL}assets/ranking-volei.webp`} alt="" />
+            <img src={`${import.meta.env.BASE_URL}assets/ranking-basquete.webp`} alt="" />
+          </span>
+          <span>
+            <strong>Modo Amador</strong>
+            <small>Grupos, partidas e rankings</small>
+          </span>
+        </button>
+        <button
+          className={managementMode === "academy" ? "active" : ""}
+          onClick={() => onModeChange("academy")}
+          type="button"
+        >
+          <span className="mode-card-art" aria-hidden="true">
+            <img src={`${import.meta.env.BASE_URL}assets/mascote-resenha.webp`} alt="" />
+          </span>
+          <span>
+            <strong>Modo Treinador</strong>
+            <small>Atletas, saúde e mensalidades</small>
+          </span>
+        </button>
+      </div>
+      <div className="group-context-actions">
+        <label className="context-select group-select">
+          <span>
+            <Users size={14} /> Grupo
+          </span>
+          <select
+            value={activeGroupId}
+            onChange={(event) => onChange(event.target.value)}
+            disabled={busy}
+          >
+            {groups.map((group) => (
+              <option key={group.id} value={group.id}>
+                {group.name}
+              </option>
+            ))}
+          </select>
+          <ChevronDown size={16} />
+        </label>
+        <button className="button secondary group-create-button" onClick={onCreate} disabled={busy}>
+          <Plus size={17} /> <span>Adicionar grupo</span>
+        </button>
+      </div>
+      <small className="mode-status">
+        {managementMode === "academy"
+          ? "Treinador · gestão técnica e administrativa dos atletas"
+          : "Amador · gestão de participantes e partidas"}
+      </small>
+    </div>
+  );
+}
+
 function ProfileAction({ className = "", icon: Icon, title, detail, onClick }) {
   return (
     <button className={className} onClick={onClick} role="menuitem">
@@ -159,7 +318,12 @@ export function SiteFooter() {
   return (
     <footer className="site-footer">
       <strong>Resenha</strong>
-      <span>Criado e desenvolvido por Adriel Alves Quintava.</span>
+      <div className="footer-developer">
+        <img src={developerEmblemSrc} alt="" aria-hidden="true" />
+        <span>
+          Criado e desenvolvido por <strong>Adriel Alves Quintava</strong>
+        </span>
+      </div>
       <small>Projeto em evolução contínua · versão de testes.</small>
     </footer>
   );

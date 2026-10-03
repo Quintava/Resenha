@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { getPublicPage, HISTORY_PAGE_SIZE } from "./dataService";
 
-const SPORTS = ["Futebol", "Futebol Society", "Futebol de Salão", "Vôlei", "Basquete", "Handebol"];
+const SPORTS = ["Futebol", "Futebol Society", "Futebol de Salão", "Vôlei", "Basquete"];
 const sportKind = (sport) =>
   ["Futebol", "Futebol Society", "Futebol de Salão"].includes(sport)
     ? "football"
@@ -31,6 +31,12 @@ const scoreLabel = (sport) =>
 const starsFromScore = (score) =>
   score >= 8.5 ? 5 : score >= 7.6 ? 4 : score >= 6.8 ? 3 : score >= 6 ? 2 : 1;
 
+const rankingArtwork = {
+  football: `${import.meta.env.BASE_URL}assets/ranking-futebol.webp`,
+  volleyball: `${import.meta.env.BASE_URL}assets/ranking-volei.webp`,
+  basketball: `${import.meta.env.BASE_URL}assets/ranking-basquete.webp`,
+};
+
 function eventLabel(event, sport) {
   const point =
     sportKind(sport) === "basketball"
@@ -43,6 +49,8 @@ function eventLabel(event, sport) {
   if (event.type === "own_goal") return `Gol contra de ${event.playerName}`;
   if (event.type === "missed_penalty") return `Pênalti perdido por ${event.playerName}`;
   if (event.type === "sub") return `${event.playerIn} entrou · ${event.playerOut} saiu`;
+  if (event.type === "position_change")
+    return `Troca de função · ${event.playerOut} e ${event.playerIn}`;
   if (event.type === "goalkeeper_change") return `${event.playerIn} assumiu o gol`;
   if (event.type === "match_highlight") return `${event.playerName} foi o destaque da partida`;
   const goalkeeper = {
@@ -154,15 +162,15 @@ export default function PublicPage({ slug }) {
     return (
       <main className="public-page public-loading">
         <LoaderCircle className="spin" />
-        <p>Carregando o Mural da Resenha…</p>
+        <p>Carregando o portal esportivo…</p>
       </main>
     );
   if (status !== "ready")
     return (
       <main className="public-page public-loading">
         <Goal size={38} />
-        <h1>Mural indisponível</h1>
-        <p>O link não existe ou o mural foi desativado.</p>
+        <h1>Portal indisponível</h1>
+        <p>O link não existe ou a publicação foi desativada.</p>
       </main>
     );
 
@@ -175,9 +183,9 @@ export default function PublicPage({ slug }) {
           <Goal size={25} />
         </span>
         <div>
-          <small>A TABELA OFICIAL DA ZOEIRA</small>
-          <h1>Mural da Resenha</h1>
-          <p>{sport} · números, histórias e aquela disputa saudável.</p>
+          <small>DESEMPENHO E RESULTADOS</small>
+          <h1>{content.page?.title || "Portal esportivo"}</h1>
+          <p>{sport} · classificação, agenda e histórico de partidas.</p>
         </div>
         <span className="public-sport-badge">{sport}</span>
       </header>
@@ -200,6 +208,16 @@ export default function PublicPage({ slug }) {
 
       <section className="public-grid public-grid-v2">
         <article className="public-card public-ranking">
+          {rankingArtwork[sportKind(sport)] && (
+            <figure className={`public-ranking-art ${sportKind(sport)}`}>
+              <img
+                src={rankingArtwork[sportKind(sport)]}
+                alt={`Atletas representando o ranking de ${sport}`}
+                width="1200"
+                height="800"
+              />
+            </figure>
+          )}
           <header>
             <Trophy size={21} />
             <div>

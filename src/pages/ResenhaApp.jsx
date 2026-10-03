@@ -48,6 +48,7 @@ import {
   X,
 } from "lucide-react";
 import { supabase, supabaseConfigured } from "../supabase";
+import { downloadBlankStudentForm, downloadStudentForm } from "../utils/studentPdf";
 import {
   canonicalSport,
   scoreAction,
@@ -77,9 +78,12 @@ import {
   TeamCard,
   TeamScore,
 } from "../components/match/MatchComponents";
-import { SiteFooter, Topbar } from "../components/layout/AppLayout";
+import { GroupBar, SiteFooter, Topbar } from "../components/layout/AppLayout";
+import { TuitionControl } from "../components/academy/TuitionControl";
 import {
   initialState,
+  ACTIVE_GROUP_PREFIX,
+  DEFAULT_GROUP_ID,
   LEGACY_STORAGE_KEY,
   MIGRATION_OWNER_KEY,
   PLAYER_PAGE_SIZE,
@@ -99,6 +103,13 @@ import {
   uid,
 } from "../utils/time";
 import {
+  PASSWORD_MIN_LENGTH,
+  friendlyAuthError,
+  normalizeEmail,
+  passwordIssue,
+  safeLocalStorageSet,
+} from "../utils/security";
+import {
   applyMatchToCareers,
   buildPlayerStats,
   emptyCareer,
@@ -116,6 +127,7 @@ import {
 } from "../domain/teamBuilder";
 import {
   hasSavedContent,
+  legacyUserStorageKey,
   normalizeState,
   readSaved,
   removePlayerFromMatch,
@@ -124,23 +136,73 @@ import {
 } from "../domain/appState";
 import {
   addUpcomingGame,
+  changeGroupMode,
+  createGroup,
+  deleteGroup,
   deleteUpcomingGame,
   getPublicSettings,
   HISTORY_PAGE_SIZE,
   loadAllHistory,
   loadMoreHistory,
   loadWorkspace,
+  listGroups,
+  renameGroup,
   saveWorkspace,
   setPublicEnabled,
 } from "../dataService";
 
 const PublicPage = lazy(() => import("../PublicPage"));
+const brandIconSrc = `${import.meta.env.BASE_URL}assets/icone-bola-resenha.webp`;
+
+const monthlyDueDate = (month, dueDay) => {
+  if (!month || !dueDay) return "";
+  const [year, monthNumber] = month.split("-").map(Number);
+  const lastDay = new Date(year, monthNumber, 0).getDate();
+  return `${month}-${String(Math.min(lastDay, Math.max(1, Number(dueDay)))).padStart(2, "0")}`;
+};
+
+const calculateAge = (birthDate) => {
+  if (!birthDate) return "";
+  const [year, month, day] = String(birthDate).split("-").map(Number);
+  if (!year || !month || !day) return "";
+  const today = new Date();
+  let age = today.getFullYear() - year;
+  if (today.getMonth() + 1 < month || (today.getMonth() + 1 === month && today.getDate() < day))
+    age -= 1;
+  return age >= 0 ? String(age) : "";
+};
+
+const maskPhone = (value) => {
+  const digits = String(value || "")
+    .replace(/\D/g, "")
+    .slice(0, 11);
+  if (digits.length <= 2) return digits ? `(${digits}` : "";
+  if (digits.length <= 6) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
+  if (digits.length <= 10)
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
+  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+};
 
 export default function ResenhaApp() {
   // Estado principal da conta e navegação.
   const [data, setData] = useState(initialState);
   const [ready, setReady] = useState(false);
   const [view, setView] = useState("setup");
+  const [groups, setGroups] = useState([]);
+  const [workspaceMode, setWorkspaceMode] = useState("amateur");
+  const [groupCreationMode, setGroupCreationMode] = useState("amateur");
+  const [activeGroupId, setActiveGroupId] = useState(DEFAULT_GROUP_ID);
+  const [groupsReady, setGroupsReady] = useState(false);
+  const [groupLoadError, setGroupLoadError] = useState("");
+  const [groupLoadAttempt, setGroupLoadAttempt] = useState(0);
+  const [groupModalOpen, setGroupModalOpen] = useState(false);
+  const [groupName, setGroupName] = useState("");
+  const [groupBusy, setGroupBusy] = useState(false);
+  const [settingsAdminMode, setSettingsAdminMode] = useState("amateur");
+  const [settingsGroupEdit, setSettingsGroupEdit] = useState(null);
+  const [playerDetails, setPlayerDetails] = useState(null);
+  const [playerDetailsTab, setPlayerDetailsTab] = useState("student");
+  const [matchInfoOpen, setMatchInfoOpen] = useState(false);
 
   // Formulários e controles da preparação/partida.
   const [playerName, setPlayerName] = useState("");
@@ -176,6 +238,9 @@ export default function ResenhaApp() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [profileMenuOpen, setProfileMenuOpen] = useState(false);
   const [appMenuOpen, setAppMenuOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notificationWelcomeOpen, setNotificationWelcomeOpen] = useState(false);
+  const [readNotificationSignature, setReadNotificationSignature] = useState("");
   const [profileName, setProfileName] = useState("");
   const [profileMessage, setProfileMessage] = useState("");
   const [editingPlayer, setEditingPlayer] = useState(null);
@@ -183,6 +248,7 @@ export default function ResenhaApp() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmNewPassword, setConfirmNewPassword] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
+  const [currentPasswordConfirm, setCurrentPasswordConfirm] = useState("");
   const [settingsMessage, setSettingsMessage] = useState("");
   const [setupMessage, setSetupMessage] = useState("");
   const [manualAssignments, setManualAssignments] = useState({});
@@ -206,6 +272,7 @@ export default function ResenhaApp() {
   const [authMode, setAuthMode] = useState("signin");
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
+  const [authPasswordConfirm, setAuthPasswordConfirm] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [passwordRecovery, setPasswordRecovery] = useState(false);
   const [recoveryPassword, setRecoveryPassword] = useState("");
@@ -230,12 +297,19 @@ export default function ResenhaApp() {
   const importInput = useRef(null);
   const profileMenuRef = useRef(null);
   const appMenuRef = useRef(null);
+  const notificationsRef = useRef(null);
   const dataRef = useRef(initialState);
   const dirtyRef = useRef(false);
   const syncingRef = useRef(false);
   const finishingRef = useRef(false);
   const authSubmittingRef = useRef(false);
   const cloudLoadedUser = useRef(null);
+  const viewAfterGroupSwitchRef = useRef(null);
+  const activeGroup = groups.find((group) => group.id === activeGroupId) || groups[0];
+  const visibleGroups = groups.filter(
+    (group) => (group.management_mode || "amateur") === workspaceMode,
+  );
+  const cloudWorkspaceKey = session?.user ? `${session.user.id}:${activeGroupId}` : null;
 
   // Atalhos do estado precisam existir antes dos cálculos derivados abaixo.
   const match = data.activeMatch;
@@ -243,9 +317,17 @@ export default function ResenhaApp() {
   const activeTraining = data.activeTraining;
 
   // Dados derivados usados por mais de uma tela.
+  const activePlayers = useMemo(
+    () => data.players.filter((player) => !player.suspended),
+    [data.players],
+  );
+  const suspendedPlayerIds = useMemo(
+    () => new Set(data.players.filter((player) => player.suspended).map((player) => player.id)),
+    [data.players],
+  );
   const playerStats = useMemo(
-    () => buildPlayerStats(data.players, data.history, data.settings.sport),
-    [data.players, data.history, data.settings.sport],
+    () => buildPlayerStats(activePlayers, data.history, data.settings.sport),
+    [activePlayers, data.history, data.settings.sport],
   );
   const managedPlayers = useMemo(() => {
     const players = new Map(
@@ -281,12 +363,14 @@ export default function ResenhaApp() {
           }
         }),
     );
-    return [...players.values()].sort((a, b) => a.name.localeCompare(b.name));
-  }, [data.players, data.history]);
-  const playerPageCount = Math.max(1, Math.ceil(data.players.length / PLAYER_PAGE_SIZE));
+    return [...players.values()]
+      .filter((player) => !suspendedPlayerIds.has(player.id))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [data.players, data.history, suspendedPlayerIds]);
+  const playerPageCount = Math.max(1, Math.ceil(activePlayers.length / PLAYER_PAGE_SIZE));
   const visiblePlayers = useMemo(
-    () => data.players.slice((playerPage - 1) * PLAYER_PAGE_SIZE, playerPage * PLAYER_PAGE_SIZE),
-    [data.players, playerPage],
+    () => activePlayers.slice((playerPage - 1) * PLAYER_PAGE_SIZE, playerPage * PLAYER_PAGE_SIZE),
+    [activePlayers, playerPage],
   );
   const displayName =
     data.profile?.displayName?.trim() ||
@@ -296,11 +380,89 @@ export default function ResenhaApp() {
   const attendanceConfigured = Array.isArray(data.settings.attendanceIds);
   const presentPlayers = useMemo(
     () =>
-      data.players.filter(
+      activePlayers.filter(
         (player) => !attendanceConfigured || data.settings.attendanceIds.includes(player.id),
       ),
-    [data.players, data.settings.attendanceIds, attendanceConfigured],
+    [activePlayers, data.settings.attendanceIds, attendanceConfigured],
   );
+  const academyNotifications = useMemo(() => {
+    if (workspaceMode !== "academy") return [];
+    const now = new Date();
+    const pad = (value) => String(value).padStart(2, "0");
+    const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+    const currentMonth = today.slice(0, 7);
+    const birthdayKey = today.slice(5);
+    const alerts = [];
+    const dueDateForMonth = (month, day) => {
+      const [year, monthNumber] = String(month).split("-").map(Number);
+      const lastDay = new Date(year, monthNumber, 0).getDate();
+      return `${month}-${pad(Math.min(lastDay, Math.max(1, Number(day) || 1)))}`;
+    };
+
+    data.players
+      .filter((player) => !player.suspended)
+      .forEach((player) => {
+        const profile = player.academyProfile || {};
+        if (profile.birthDate?.slice(5) === birthdayKey) {
+          alerts.push({
+            id: `birthday-${player.id}-${today}`,
+            type: "birthday",
+            title: `Aniversário de ${player.name}`,
+            message: "Hoje é aniversário deste aluno.",
+            date: today,
+            dateLabel: "Hoje",
+          });
+        }
+
+        if (profile.tuitionType === "scholarship100") return;
+        const history = Array.isArray(profile.paymentHistory) ? profile.paymentHistory : [];
+        const pendingRecords = history
+          .filter((record) => {
+            if (record.paid) return false;
+            const fallbackDue =
+              record.month && profile.dueDay ? dueDateForMonth(record.month, profile.dueDay) : "";
+            const dueDate = record.dueDate || fallbackDue;
+            return dueDate && dueDate < today;
+          })
+          .map((record) => ({
+            ...record,
+            resolvedDueDate: record.dueDate || dueDateForMonth(record.month, profile.dueDay),
+          }))
+          .sort((a, b) => b.resolvedDueDate.localeCompare(a.resolvedDueDate));
+
+        let overdue = pendingRecords[0];
+        const hasCurrentMonth = history.some((record) => record.month === currentMonth);
+        const automaticDueDate = profile.dueDay
+          ? dueDateForMonth(currentMonth, profile.dueDay)
+          : "";
+        if (!overdue && !hasCurrentMonth && automaticDueDate && automaticDueDate < today) {
+          overdue = {
+            id: `automatic-${currentMonth}`,
+            month: currentMonth,
+            resolvedDueDate: automaticDueDate,
+          };
+        }
+        if (overdue) {
+          alerts.push({
+            id: `payment-${player.id}-${overdue.id || overdue.month}`,
+            type: "payment",
+            title: `Mensalidade vencida`,
+            message: `${player.name} possui a mensalidade de ${overdue.month || "um mês anterior"} pendente.`,
+            date: overdue.resolvedDueDate,
+            dateLabel: `Venceu em ${overdue.resolvedDueDate.split("-").reverse().join("/")}`,
+          });
+        }
+      });
+
+    return alerts.sort((a, b) => b.date.localeCompare(a.date)).slice(0, 4);
+  }, [data.players, workspaceMode]);
+  const academyNotificationSignature = academyNotifications
+    .map((notification) => notification.id)
+    .join("|");
+  const unreadNotifications =
+    academyNotificationSignature && readNotificationSignature !== academyNotificationSignature
+      ? academyNotifications.length
+      : 0;
   const evolutionPlayer =
     managedPlayers.find((player) => player.id === evolutionPlayerId) || managedPlayers[0] || null;
   const evolutionGames = useMemo(() => {
@@ -313,9 +475,12 @@ export default function ResenhaApp() {
       )
       .map((game) => {
         const points = pointsInMatch(game, evolutionPlayer.id);
-        const assists = (game.events || []).filter(
-          (event) => event.type === "goal" && event.assistPlayerId === evolutionPlayer.id,
-        ).length;
+        const assists =
+          sportKind(game.sport) === "football"
+            ? (game.events || []).filter(
+                (event) => event.type === "goal" && event.assistPlayerId === evolutionPlayer.id,
+              ).length
+            : 0;
         const performance = playerPerformance(game, evolutionPlayer.id);
         return { game, points, assists, rating: performance.stars, evaluation: performance.score };
       });
@@ -362,11 +527,14 @@ export default function ResenhaApp() {
       if (profileMenuRef.current && !profileMenuRef.current.contains(event.target))
         setProfileMenuOpen(false);
       if (appMenuRef.current && !appMenuRef.current.contains(event.target)) setAppMenuOpen(false);
+      if (notificationsRef.current && !notificationsRef.current.contains(event.target))
+        setNotificationsOpen(false);
     };
     const closeOnEscape = (event) => {
       if (event.key === "Escape") {
         setProfileMenuOpen(false);
         setAppMenuOpen(false);
+        setNotificationsOpen(false);
       }
     };
     document.addEventListener("mousedown", closeMenu);
@@ -376,6 +544,38 @@ export default function ResenhaApp() {
       document.removeEventListener("keydown", closeOnEscape);
     };
   }, []);
+
+  useEffect(() => {
+    if (!ready || workspaceMode !== "academy" || academyNotifications.length === 0) {
+      setNotificationWelcomeOpen(false);
+      return;
+    }
+    const today = new Date().toLocaleDateString("en-CA");
+    const signature = `${today}:${academyNotifications.map((notification) => notification.id).join("|")}`;
+    const storageKey = `resenha:academy-alerts:${activeGroupId}`;
+    if (localStorage.getItem(storageKey) !== signature) {
+      setNotificationWelcomeOpen(true);
+      localStorage.setItem(storageKey, signature);
+    }
+  }, [academyNotifications, activeGroupId, ready, workspaceMode]);
+
+  useEffect(() => {
+    if (workspaceMode !== "academy") {
+      setReadNotificationSignature("");
+      return;
+    }
+    setReadNotificationSignature(
+      localStorage.getItem(`resenha:academy-alerts-read:${activeGroupId}`) || "",
+    );
+  }, [academyNotificationSignature, activeGroupId, workspaceMode]);
+
+  const markAcademyNotificationsAsRead = () => {
+    setReadNotificationSignature(academyNotificationSignature);
+    localStorage.setItem(
+      `resenha:academy-alerts-read:${activeGroupId}`,
+      academyNotificationSignature,
+    );
+  };
 
   // Mantém as seleções e a paginação válidas quando os jogadores mudam.
   useEffect(() => {
@@ -391,21 +591,34 @@ export default function ResenhaApp() {
   // Salva uma cópia local imediatamente; a nuvem é atualizada em segundo plano.
   useEffect(() => {
     if (ready && session?.user) {
-      localStorage.setItem(userStorageKey(session.user.id), JSON.stringify(data));
+      const cached = safeLocalStorageSet(
+        userStorageKey(session.user.id, activeGroupId),
+        JSON.stringify(data),
+      );
       dataRef.current = data;
       dirtyRef.current = true;
+      if (!cached) setSyncStatus("error");
     }
-  }, [data, ready, session?.user?.id]);
+  }, [data, ready, session?.user?.id, activeGroupId]);
 
   // Aplica e guarda o tema escolhido.
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    localStorage.setItem(THEME_KEY, theme);
+    safeLocalStorageSet(THEME_KEY, theme);
   }, [theme]);
 
   useEffect(() => {
-    setStatsSport(canonicalSport(data.settings.sport));
+    const requestedSport = canonicalSport(data.settings.sport);
+    setStatsSport(
+      Object.hasOwn(SPORT_PRESETS, requestedSport) ? requestedSport : initialState.settings.sport,
+    );
   }, [data.settings.sport]);
+
+  useEffect(() => {
+    const academySports = ["Futebol", "Futebol Society", "Futebol de Salão"];
+    if (workspaceMode === "academy" && !academySports.includes(canonicalSport(data.settings.sport)))
+      changeSport("Futebol de Salão");
+  }, [workspaceMode, data.settings.sport]);
 
   // Observa login, logout e links de recuperação de senha do Supabase.
   useEffect(() => {
@@ -413,10 +626,11 @@ export default function ResenhaApp() {
       setAuthReady(true);
       return undefined;
     }
-    supabase.auth.getSession().then(({ data: authData }) => {
-      setSession(authData.session);
-      setAuthReady(true);
-    });
+    supabase.auth
+      .getSession()
+      .then(({ data: authData }) => setSession(authData.session))
+      .catch(() => setAuthMessage("Não foi possível verificar a sessão. Confira a conexão."))
+      .finally(() => setAuthReady(true));
     const { data: listener } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (event === "PASSWORD_RECOVERY") {
         setPasswordRecovery(true);
@@ -428,15 +642,62 @@ export default function ResenhaApp() {
     return () => listener.subscription.unsubscribe();
   }, []);
 
+  // Lista os espaços esportivos da conta e restaura o último grupo usado.
+  useEffect(() => {
+    if (!authReady || !session?.user || !supabaseConfigured) {
+      setGroupsReady(false);
+      return;
+    }
+    let cancelled = false;
+    setReady(false);
+    setGroupLoadError("");
+    Promise.race([
+      listGroups(session.user.id),
+      new Promise((_, reject) =>
+        window.setTimeout(() => reject(new Error("O banco demorou demais para responder.")), 15000),
+      ),
+    ])
+      .then((items) => {
+        if (cancelled) return;
+        const remembered = localStorage.getItem(`${ACTIVE_GROUP_PREFIX}:${session.user.id}`);
+        const selected = items.some((item) => item.id === remembered)
+          ? remembered
+          : items[0]?.id || DEFAULT_GROUP_ID;
+        const selectedGroup = items.find((item) => item.id === selected);
+        setGroups(items);
+        setActiveGroupId(selected);
+        setWorkspaceMode(selectedGroup?.management_mode || "amateur");
+        setGroupsReady(true);
+        setGroupLoadError("");
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        const detail = String(error?.message || "Erro desconhecido");
+        setGroupsReady(false);
+        setGroupLoadError(
+          detail.includes("user_groups") || detail.includes("schema cache")
+            ? "A atualização do banco ainda não foi aplicada. Execute o novo supabase/schema.sql completo no SQL Editor."
+            : `Não foi possível abrir os grupos: ${detail}`,
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [authReady, session?.user?.id, groupLoadAttempt]);
+
   // Carrega primeiro a cópia local e migra dados das versões antigas apenas uma vez.
   useEffect(() => {
-    if (!authReady || !session?.user) {
+    if (!authReady || !session?.user || !groupsReady) {
       setReady(false);
       cloudLoadedUser.current = null;
       return;
     }
-    const key = userStorageKey(session.user.id);
+    const key = userStorageKey(session.user.id, activeGroupId);
     let saved = readSaved(key);
+    if (activeGroupId === DEFAULT_GROUP_ID && !hasSavedContent(saved)) {
+      const previousCache = readSaved(legacyUserStorageKey(session.user.id));
+      if (hasSavedContent(previousCache)) saved = previousCache;
+    }
     const migrationOwner = localStorage.getItem(MIGRATION_OWNER_KEY);
     if (!hasSavedContent(saved) && !migrationOwner) {
       const legacy = readSaved(LEGACY_STORAGE_KEY);
@@ -450,9 +711,11 @@ export default function ResenhaApp() {
     }
     setData(saved);
     dataRef.current = saved;
-    setView(saved.activeMatch ? "match" : "setup");
+    const requestedView = viewAfterGroupSwitchRef.current;
+    setView(requestedView || (saved.activeMatch ? "match" : "setup"));
+    viewAfterGroupSwitchRef.current = null;
     setReady(true);
-  }, [authReady, session?.user?.id]);
+  }, [authReady, session?.user?.id, groupsReady, activeGroupId]);
 
   // Atualiza o estado local com os dados protegidos e paginados da nuvem.
   useEffect(() => {
@@ -464,23 +727,22 @@ export default function ResenhaApp() {
     const loadCloud = async () => {
       setSyncStatus("loading");
       try {
-        const loaded = await loadWorkspace(session.user.id, initialState);
+        const loaded = await loadWorkspace(session.user.id, activeGroupId, initialState);
         if (cancelled) return;
         let cloudData = normalizeState(loaded.state);
         if (cloudData.players.some((player) => !normalizeCareer(player.career))) {
-          const completeHistory = await loadAllHistory(session.user.id);
+          const completeHistory = await loadAllHistory(session.user.id, activeGroupId);
           cloudData = {
             ...cloudData,
             players: rebuildPlayerCareers(cloudData.players, completeHistory),
           };
-          await saveWorkspace(session.user.id, cloudData);
+          await saveWorkspace(session.user.id, activeGroupId, cloudData);
         }
         setData(cloudData);
         dataRef.current = cloudData;
-        if (cloudData.activeMatch) setView("match");
         setHistoryHasMore(loaded.hasMore);
         dirtyRef.current = false;
-        cloudLoadedUser.current = session.user.id;
+        cloudLoadedUser.current = cloudWorkspaceKey;
         setSyncStatus("synced");
       } catch (error) {
         if (cancelled) return;
@@ -494,7 +756,7 @@ export default function ResenhaApp() {
     return () => {
       cancelled = true;
     };
-  }, [ready, session?.user?.id]);
+  }, [ready, session?.user?.id, activeGroupId, cloudWorkspaceKey]);
 
   // O serviço compara impressões digitais para enviar somente o que mudou.
   const syncNow = useCallback(async () => {
@@ -502,13 +764,13 @@ export default function ResenhaApp() {
       !supabaseConfigured ||
       !session?.user ||
       syncingRef.current ||
-      cloudLoadedUser.current !== session.user.id
+      cloudLoadedUser.current !== cloudWorkspaceKey
     )
       return;
     syncingRef.current = true;
     setSyncStatus("syncing");
     try {
-      await saveWorkspace(session.user.id, dataRef.current);
+      await saveWorkspace(session.user.id, activeGroupId, dataRef.current);
       dirtyRef.current = false;
       setSyncStatus("synced");
     } catch (error) {
@@ -516,7 +778,7 @@ export default function ResenhaApp() {
       setAuthMessage(`Falha ao sincronizar: ${error.message}`);
     }
     syncingRef.current = false;
-  }, [session?.user?.id]);
+  }, [session?.user?.id, activeGroupId, cloudWorkspaceKey]);
 
   // Sincroniza periodicamente sem fazer requisições quando não há alterações.
   useEffect(() => {
@@ -525,6 +787,21 @@ export default function ResenhaApp() {
       if (dirtyRef.current) syncNow();
     }, 3000);
     return () => window.clearInterval(interval);
+  }, [session?.user?.id, syncNow]);
+
+  // No celular, sinaliza perda de rede e tenta enviar alterações assim que a conexão retornar.
+  useEffect(() => {
+    const handleOffline = () => setSyncStatus("offline");
+    const handleOnline = () => {
+      if (dirtyRef.current) syncNow();
+      else if (session?.user) setSyncStatus("synced");
+    };
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
+    return () => {
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
+    };
   }, [session?.user?.id, syncNow]);
 
   // Cronômetro regressivo da partida.
@@ -599,6 +876,232 @@ export default function ResenhaApp() {
     [data.players, playerName],
   );
 
+  const togglePlayerSuspension = (playerId) => {
+    setData((current) => {
+      const player = current.players.find((item) => item.id === playerId);
+      const suspended = !player?.suspended;
+      return {
+        ...current,
+        players: current.players.map((item) =>
+          item.id === playerId ? { ...item, suspended } : item,
+        ),
+        settings: {
+          ...current.settings,
+          attendanceIds: suspended
+            ? (current.settings.attendanceIds || []).filter((id) => id !== playerId)
+            : current.settings.attendanceIds,
+        },
+      };
+    });
+  };
+
+  const openPlayerDetails = (player) => {
+    setSettingsMessage("");
+    setPlayerDetailsTab("student");
+    const profile = player.academyProfile || {};
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    setPlayerDetails({
+      playerId: player.id,
+      name: player.name || "",
+      nickname: profile.nickname || "",
+      age: calculateAge(profile.birthDate) || profile.age || "",
+      birthDate: profile.birthDate || "",
+      category: profile.category || "",
+      primaryPosition: profile.primaryPosition || "",
+      secondaryPosition: profile.secondaryPosition || "",
+      dominantFoot: profile.dominantFoot || "",
+      height: profile.height || "",
+      weight: profile.weight || "",
+      experience: profile.experience || "",
+      medicalRestrictions: profile.medicalRestrictions || "",
+      allergies: profile.allergies || "",
+      bloodType: profile.bloodType || "",
+      continuousMedication: profile.continuousMedication || "",
+      emergencyName: profile.emergencyName || "",
+      emergencyPhone: profile.emergencyPhone || "",
+      tuitionType: profile.tuitionType || "paying",
+      monthlyFee: profile.monthlyFee ?? "",
+      dueDay: profile.dueDay || "",
+      paymentHistory: Array.isArray(profile.paymentHistory) ? profile.paymentHistory : [],
+      paymentDraft: {
+        month: currentMonth,
+        dueDate: monthlyDueDate(currentMonth, profile.dueDay),
+        paid: false,
+        paidAt: "",
+      },
+    });
+  };
+
+  const openNewAcademyPlayer = () => {
+    setSettingsMessage("");
+    setPlayerDetailsTab("student");
+    const currentMonth = new Date().toISOString().slice(0, 7);
+    const defaultDueDay = data.settings.academyDueDay || "";
+    setPlayerDetails({
+      playerId: null,
+      name: "",
+      nickname: "",
+      age: "",
+      birthDate: "",
+      category: "",
+      primaryPosition: "",
+      secondaryPosition: "",
+      dominantFoot: "",
+      height: "",
+      weight: "",
+      experience: "",
+      medicalRestrictions: "",
+      allergies: "",
+      bloodType: "",
+      continuousMedication: "",
+      emergencyName: "",
+      emergencyPhone: "",
+      tuitionType: "paying",
+      monthlyFee: data.settings.academyMonthlyFee ?? "",
+      dueDay: defaultDueDay,
+      paymentHistory: [],
+      paymentDraft: {
+        month: currentMonth,
+        dueDate: monthlyDueDate(currentMonth, defaultDueDay),
+        paid: false,
+        paidAt: "",
+      },
+    });
+  };
+
+  const savePaymentRecord = () => {
+    const draft = playerDetails?.paymentDraft;
+    if (!draft?.month) {
+      setSettingsMessage("Selecione o mês da mensalidade.");
+      return;
+    }
+    const fullValue = Math.max(0, Number(playerDetails.monthlyFee) || 0);
+    const multiplier =
+      playerDetails.tuitionType === "scholarship100"
+        ? 0
+        : playerDetails.tuitionType === "scholarship50"
+          ? 0.5
+          : 1;
+    const record = {
+      id: uid(),
+      month: draft.month,
+      dueDate: draft.dueDate || "",
+      amount: Number((fullValue * multiplier).toFixed(2)),
+      paid: Boolean(draft.paid) || multiplier === 0,
+      paidAt: draft.paid || multiplier === 0 ? draft.paidAt || "" : "",
+    };
+    setPlayerDetails((current) => ({
+      ...current,
+      paymentHistory: [
+        ...(current.paymentHistory || []).filter((item) => item.month !== record.month),
+        record,
+      ],
+    }));
+    setSettingsMessage("Mensalidade registrada na ficha. Salve a ficha para confirmar.");
+  };
+
+  const saveAcademyTuitionDefaults = () => {
+    const value = String(playerDetails?.monthlyFee ?? "");
+    const dueDay = String(playerDetails?.dueDay || "");
+    if (!value || Number(value) < 0 || !dueDay || Number(dueDay) < 1 || Number(dueDay) > 31) {
+      setSettingsMessage("Informe um valor válido e um dia de vencimento entre 1 e 31.");
+      return;
+    }
+    setData((current) => ({
+      ...current,
+      settings: {
+        ...current.settings,
+        academyMonthlyFee: value,
+        academyDueDay: dueDay,
+      },
+    }));
+    setSettingsMessage("Valor e vencimento definidos como padrão do Modo Treinador.");
+  };
+
+  const removePaymentRecord = (recordId) => {
+    setPlayerDetails((current) => ({
+      ...current,
+      paymentHistory: (current.paymentHistory || []).filter((item) => item.id !== recordId),
+    }));
+  };
+
+  // Atualiza uma mensalidade diretamente na visão anual, sem recriar os demais meses.
+  const updateAnnualPayment = (month, paid, paidAt = null) => {
+    setPlayerDetails((current) => {
+      if (!current) return current;
+      const existing = (current.paymentHistory || []).find((item) => item.month === month);
+      const multiplier =
+        current.tuitionType === "scholarship100"
+          ? 0
+          : current.tuitionType === "scholarship50"
+            ? 0.5
+            : 1;
+      const today = new Date().toISOString().slice(0, 10);
+      const record = {
+        id: existing?.id || uid(),
+        month,
+        dueDate: existing?.dueDate || monthlyDueDate(month, current.dueDay),
+        amount: Number(((Number(current.monthlyFee) || 0) * multiplier).toFixed(2)),
+        paid: Boolean(paid),
+        paidAt: paid ? (paidAt ?? existing?.paidAt ?? today) || today : "",
+      };
+      return {
+        ...current,
+        paymentHistory: [
+          ...(current.paymentHistory || []).filter((item) => item.month !== month),
+          record,
+        ],
+      };
+    });
+    setSettingsMessage("Mensalidade atualizada. Salve a ficha para confirmar.");
+  };
+
+  const updateAnnualPaymentDate = (month, paidAt) => updateAnnualPayment(month, true, paidAt);
+
+  const savePlayerDetails = (event) => {
+    event.preventDefault();
+    if (!playerDetails) return;
+    const { playerId, name, paymentDraft: _paymentDraft, ...academyProfile } = playerDetails;
+    const safeName = name.trim().slice(0, 60);
+    const original = data.players.find((player) => player.id === playerId);
+    if (!safeName) return;
+    if (
+      data.players.some(
+        (player) => player.id !== playerId && player.name.toLowerCase() === safeName.toLowerCase(),
+      )
+    ) {
+      setSettingsMessage("Já existe um jogador com esse nome.");
+      return;
+    }
+    if (!original) {
+      const newPlayer = { id: uid(), name: safeName, career: emptyCareer(), academyProfile };
+      setData((current) => ({
+        ...current,
+        players: [...current.players, newPlayer],
+        settings: {
+          ...current.settings,
+          attendanceIds: [...(current.settings.attendanceIds || []), newPlayer.id],
+        },
+      }));
+      setPlayerPage(Math.ceil((data.players.length + 1) / PLAYER_PAGE_SIZE));
+      setPlayerDetails(null);
+      setSettingsMessage("Aluno cadastrado com sucesso.");
+      return;
+    }
+    setData((current) => ({
+      ...current,
+      players: current.players.map((player) =>
+        player.id === playerId ? { ...player, name: safeName, academyProfile } : player,
+      ),
+      activeMatch: renamePlayerInMatch(current.activeMatch, playerId, original.name, safeName),
+      history: current.history.map((game) =>
+        renamePlayerInMatch(game, playerId, original.name, safeName),
+      ),
+    }));
+    setPlayerDetails(null);
+    setSettingsMessage("Ficha do jogador atualizada.");
+  };
+
   const startMatch = useCallback(() => {
     setSetupMessage("");
     if (presentPlayers.length < 2) {
@@ -607,7 +1110,7 @@ export default function ResenhaApp() {
     }
     const durationSeconds = data.settings.duration * 60;
     const teamCount = Math.max(2, Math.min(TEAM_META.length, Number(data.settings.teamCount) || 2));
-    const ratedPlayers = presentPlayers.map((player) => ({
+    const ratedPlayers = presentPlayers.map(({ academyProfile: _privateProfile, ...player }) => ({
       ...player,
       rating: playerStats.get(player.id)?.rating || 1,
       balanceScore: playerStats.get(player.id)?.balanceScore || 6,
@@ -664,6 +1167,7 @@ export default function ResenhaApp() {
       roundNumber: 1,
       date: new Date().toISOString(),
       sport: data.settings.sport,
+      managementMode: workspaceMode,
       durationSeconds,
       remainingSeconds: durationSeconds,
       running: false,
@@ -678,12 +1182,12 @@ export default function ResenhaApp() {
     setData((current) => ({ ...current, activeMatch: match }));
     setMatchMessage(
       allTeams.length > 2
-        ? `${allTeams.length} times prontos. Os times de fora ficam na fila da resenha.`
-        : "Escalação salva para as próximas partidas desta resenha.",
+        ? `${allTeams.length} times prontos. As equipes aguardam na ordem de entrada.`
+        : "Escalação mantida para as próximas partidas desta sessão.",
     );
     setView("match");
     return { ok: true, matchId: match.id };
-  }, [data.settings, manualAssignments, playerStats, presentPlayers]);
+  }, [data.settings, manualAssignments, playerStats, presentPlayers, workspaceMode]);
 
   // Cada pontuação vira um evento individual, inclusive para a sincronização incremental.
   const registerGoal = useCallback((teamIndex, playerId, assistPlayerId = "") => {
@@ -755,7 +1259,7 @@ export default function ResenhaApp() {
     register({
       name: "add_player",
       title: "Adicionar jogador",
-      description: "Adiciona um jogador à lista do Resenha.",
+      description: "Adiciona um participante à organização selecionada.",
       inputSchema: {
         type: "object",
         properties: { name: { type: "string" } },
@@ -803,17 +1307,18 @@ export default function ResenhaApp() {
       },
     }));
   const changeSport = (sport) => {
-    const preset = SPORT_PRESETS[sport];
+    const safeSport = Object.hasOwn(SPORT_PRESETS, sport) ? sport : initialState.settings.sport;
+    const preset = SPORT_PRESETS[safeSport];
     setData((current) => ({
       ...current,
       settings: {
         ...current.settings,
-        sport,
+        sport: safeSport,
         startersPerTeam: preset.players,
         duration: preset.duration,
       },
     }));
-    setStatsSport(sport);
+    setStatsSport(safeSport);
   };
   const toggleAttendance = (playerId) =>
     setData((current) => {
@@ -904,7 +1409,11 @@ export default function ResenhaApp() {
     const availableBench = substitutionBench(match, teamIndex);
     setSubTeam(teamIndex);
     setSelectedOut(playerOutId || team?.starters[0]?.id || "");
-    setSelectedIn(availableBench[0]?.id || "");
+    setSelectedIn(
+      availableBench[0]?.id ||
+        team?.starters.find((player) => player.id !== (playerOutId || team?.starters[0]?.id))?.id ||
+        "",
+    );
   };
 
   const confirmSubstitution = () => {
@@ -912,10 +1421,64 @@ export default function ResenhaApp() {
       const match = current.activeMatch;
       if (!match || subTeam === null || !selectedOut || !selectedIn) return current;
       const out = match.teams[subTeam].starters.find((player) => player.id === selectedOut);
+      const fieldCandidate = match.teams[subTeam].starters.find(
+        (player) => player.id === selectedIn && player.id !== selectedOut,
+      );
       const incomingOption = substitutionBench(match, subTeam).find(
         (player) => player.id === selectedIn,
       );
-      if (!out || !incomingOption) return current;
+      if (!out || (!incomingOption && !fieldCandidate)) return current;
+
+      // Dois atletas que já estão em campo apenas trocam de função. Se um deles ocupa o gol,
+      // transfere a função de goleiro e preserva a escalação completa.
+      if (fieldCandidate) {
+        const teams = match.teams.map((team) => ({
+          ...team,
+          starters: [...team.starters],
+          bench: [...team.bench],
+        }));
+        const currentGoalkeeperId = teams[subTeam].goalkeeperId;
+        let nextGoalkeeperId = currentGoalkeeperId;
+        if (currentGoalkeeperId === out.id) nextGoalkeeperId = fieldCandidate.id;
+        else if (currentGoalkeeperId === fieldCandidate.id) nextGoalkeeperId = out.id;
+        teams[subTeam].goalkeeperId = nextGoalkeeperId;
+        const elapsedSeconds = match.durationSeconds - match.remainingSeconds;
+        const positionEvent = {
+          id: uid(),
+          type: "position_change",
+          teamIndex: subTeam,
+          playerOutId: out.id,
+          playerOut: out.name,
+          playerInId: fieldCandidate.id,
+          playerIn: fieldCandidate.name,
+          minute: minuteOf(match),
+          elapsedSeconds,
+        };
+        const goalkeeperEvent =
+          nextGoalkeeperId !== currentGoalkeeperId
+            ? {
+                ...positionEvent,
+                id: uid(),
+                type: "goalkeeper_change",
+                playerOutId: currentGoalkeeperId,
+                playerOut: match.teams[subTeam].starters.find(
+                  (player) => player.id === currentGoalkeeperId,
+                )?.name,
+                playerInId: nextGoalkeeperId,
+                playerIn: match.teams[subTeam].starters.find(
+                  (player) => player.id === nextGoalkeeperId,
+                )?.name,
+              }
+            : null;
+        return {
+          ...current,
+          activeMatch: {
+            ...match,
+            teams,
+            events: [positionEvent, ...(goalkeeperEvent ? [goalkeeperEvent] : []), ...match.events],
+          },
+        };
+      }
       const { sourceTeamIndex, ...incoming } = incomingOption;
       const teams = match.teams.map((team) => ({
         ...team,
@@ -1144,7 +1707,7 @@ export default function ResenhaApp() {
     setTeamSwapSide(null);
   };
 
-  // Salva a partida em andamento, quando houve jogo, e encerra toda a resenha.
+  // Salva a partida em andamento, quando houve jogo, e encerra a sessão atual.
   const endSession = () => {
     if (!data.activeMatch || finishingRef.current) return;
     const played =
@@ -1152,8 +1715,8 @@ export default function ResenhaApp() {
       data.activeMatch.score.some((value) => value > 0) ||
       data.activeMatch.remainingSeconds < data.activeMatch.durationSeconds;
     const message = played
-      ? "Salvar esta partida e encerrar a resenha de hoje?"
-      : "Encerrar a resenha? Esta partida vazia não será salva.";
+      ? "Salvar esta partida e encerrar a sessão de hoje?"
+      : "Encerrar a sessão? Esta partida vazia não será salva.";
     if (!window.confirm(message)) return;
     finishingRef.current = true;
     setData((current) => {
@@ -1367,19 +1930,22 @@ export default function ResenhaApp() {
         players.set(player.id, item);
       });
     });
-    return [...players.values()].map((player) => {
-      const evaluation = player.games
-        ? Number((player.evaluationTotal / player.games).toFixed(1))
-        : 0;
-      return {
-        ...player,
-        total: player.goals + player.assists,
-        saveAverage: player.games ? player.saves / player.games : 0,
-        evaluation,
-        stars: starsFromScore(evaluation, player.games),
-      };
-    });
-  }, [monthMatches]);
+    return [...players.values()]
+      .filter((player) => !suspendedPlayerIds.has(player.id))
+      .map((player) => {
+        const evaluation = player.games
+          ? Number((player.evaluationTotal / player.games).toFixed(1))
+          : 0;
+        return {
+          ...player,
+          total:
+            sportKind(statsSport) === "football" ? player.goals + player.assists : player.goals,
+          saveAverage: player.games ? player.saves / player.games : 0,
+          evaluation,
+          stars: starsFromScore(evaluation, player.games),
+        };
+      });
+  }, [monthMatches, suspendedPlayerIds]);
   const monthlyRanking = useMemo(
     () =>
       [...rankingData].sort(
@@ -1393,7 +1959,7 @@ export default function ResenhaApp() {
   );
   const overallRanking = useMemo(() => {
     const sport = canonicalSport(statsSport);
-    return data.players
+    return activePlayers
       .map((player) => {
         const career = normalizeCareer(player.career)?.sports?.[sport];
         if (!career?.games) return null;
@@ -1405,7 +1971,8 @@ export default function ResenhaApp() {
           saves: career.goalkeeperSaves,
           saveAverage: career.goalkeeperSaves / career.games,
           games: career.games,
-          total: career.points + career.assists,
+          total:
+            sportKind(statsSport) === "football" ? career.points + career.assists : career.points,
           evaluation: Number(career.evaluationAverage.toFixed(1)),
           stars: career.stars,
         };
@@ -1418,7 +1985,7 @@ export default function ResenhaApp() {
           b.saves - a.saves ||
           a.name.localeCompare(b.name),
       );
-  }, [data.players, statsSport]);
+  }, [activePlayers, statsSport]);
   const selectedRankingMatch = useMemo(
     () => sportMatches.find((match) => match.id === rankingMatchId) || sportMatches[0] || null,
     [sportMatches, rankingMatchId],
@@ -1433,6 +2000,7 @@ export default function ResenhaApp() {
       ).values(),
     ];
     return roster
+      .filter((player) => !suspendedPlayerIds.has(player.id))
       .map((player) => {
         const performance = playerPerformance(selectedRankingMatch, player.id);
         return {
@@ -1443,7 +2011,10 @@ export default function ResenhaApp() {
           saves: performance.goalkeeper.saves,
           saveAverage: performance.goalkeeper.saves,
           games: 1,
-          total: performance.points + performance.assists,
+          total:
+            sportKind(statsSport) === "football"
+              ? performance.points + performance.assists
+              : performance.points,
           evaluation: performance.score,
           stars: performance.stars,
         };
@@ -1455,7 +2026,7 @@ export default function ResenhaApp() {
           b.saves - a.saves ||
           a.name.localeCompare(b.name),
       );
-  }, [selectedRankingMatch]);
+  }, [selectedRankingMatch, suspendedPlayerIds]);
   const displayedRanking =
     rankingScope === "match"
       ? matchRanking
@@ -1484,51 +2055,84 @@ export default function ResenhaApp() {
     authSubmittingRef.current = true;
     setAuthBusy(true);
     setAuthMessage("");
-    const credentials = { email: authEmail.trim(), password: authPassword };
-    const result =
-      authMode === "signup"
-        ? await supabase.auth.signUp({
-            ...credentials,
-            options: { emailRedirectTo: `${window.location.origin}${import.meta.env.BASE_URL}` },
-          })
-        : await supabase.auth.signInWithPassword(credentials);
-    setAuthBusy(false);
-    authSubmittingRef.current = false;
-    if (result.error) {
-      setAuthMessage(result.error.message);
-      return;
-    }
-    setAuthPassword("");
-    if (authMode === "signup" && !result.data.session) {
-      setAuthMessage("Cadastro criado. Confirme o e-mail recebido e depois entre na conta.");
-    } else {
-      setAuthMessage("Conta conectada. Os dados estão sendo sincronizados.");
+    try {
+      if (!navigator.onLine) throw new Error("offline");
+      const credentials = { email: normalizeEmail(authEmail), password: authPassword };
+      if (!credentials.email) {
+        setAuthMessage("Informe um e-mail válido.");
+        return;
+      }
+      if (authMode === "signup") {
+        const issue = passwordIssue(authPassword);
+        if (issue) {
+          setAuthMessage(issue);
+          return;
+        }
+        if (authPassword !== authPasswordConfirm) {
+          setAuthMessage("As senhas digitadas não são iguais.");
+          return;
+        }
+      }
+      const result =
+        authMode === "signup"
+          ? await supabase.auth.signUp({
+              ...credentials,
+              options: { emailRedirectTo: `${window.location.origin}${import.meta.env.BASE_URL}` },
+            })
+          : await supabase.auth.signInWithPassword(credentials);
+      if (result.error) {
+        setAuthMessage(friendlyAuthError(result.error, "Não foi possível acessar a conta."));
+        return;
+      }
+      setAuthPassword("");
+      setAuthPasswordConfirm("");
+      if (authMode === "signup" && !result.data.session) {
+        setAuthMessage("Cadastro criado. Confirme o e-mail recebido e depois entre na conta.");
+      } else {
+        setAuthMessage("Conta conectada. Os dados estão sendo sincronizados.");
+      }
+    } catch (error) {
+      setAuthMessage(
+        error?.message === "offline"
+          ? "Sem conexão com a internet. Verifique a rede e tente novamente."
+          : "Não foi possível conectar. Verifique a internet e tente novamente.",
+      );
+    } finally {
+      setAuthBusy(false);
+      authSubmittingRef.current = false;
     }
   };
 
   const sendPasswordReset = async () => {
-    const email = authEmail.trim();
+    const email = normalizeEmail(authEmail);
     if (!email) {
       setAuthMessage("Digite seu e-mail para receber o link de recuperação.");
       return;
     }
     setAuthBusy(true);
     setAuthMessage("");
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}${import.meta.env.BASE_URL}`,
-    });
-    setAuthBusy(false);
-    setAuthMessage(
-      error
-        ? error.message
-        : "Se o e-mail estiver cadastrado, você receberá um link para criar uma nova senha.",
-    );
+    try {
+      if (!navigator.onLine) throw new Error("offline");
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}${import.meta.env.BASE_URL}`,
+      });
+      setAuthMessage(
+        error
+          ? friendlyAuthError(error, "Não foi possível enviar o e-mail agora.")
+          : "Se o e-mail estiver cadastrado, você receberá um link para criar uma nova senha.",
+      );
+    } catch {
+      setAuthMessage("Sem conexão com a internet. Tente novamente quando a rede voltar.");
+    } finally {
+      setAuthBusy(false);
+    }
   };
 
   const submitRecoveryPassword = async (event) => {
     event.preventDefault();
-    if (recoveryPassword.length < 6) {
-      setAuthMessage("A nova senha precisa ter pelo menos 6 caracteres.");
+    const issue = passwordIssue(recoveryPassword);
+    if (issue) {
+      setAuthMessage(issue);
       return;
     }
     if (recoveryPassword !== recoveryConfirm) {
@@ -1537,17 +2141,22 @@ export default function ResenhaApp() {
     }
     setAuthBusy(true);
     setAuthMessage("");
-    const { error } = await supabase.auth.updateUser({ password: recoveryPassword });
-    if (!error) await supabase.auth.signOut();
-    setAuthBusy(false);
-    if (error) {
-      setAuthMessage(error.message);
-      return;
+    try {
+      const { error } = await supabase.auth.updateUser({ password: recoveryPassword });
+      if (error) {
+        setAuthMessage(friendlyAuthError(error, "Não foi possível redefinir a senha."));
+        return;
+      }
+      await supabase.auth.signOut();
+      setPasswordRecovery(false);
+      setRecoveryPassword("");
+      setRecoveryConfirm("");
+      setAuthMessage("Senha alterada com sucesso. Entre novamente com a nova senha.");
+    } catch {
+      setAuthMessage("Falha de conexão. Tente novamente.");
+    } finally {
+      setAuthBusy(false);
     }
-    setPasswordRecovery(false);
-    setRecoveryPassword("");
-    setRecoveryConfirm("");
-    setAuthMessage("Senha alterada com sucesso. Entre novamente com a nova senha.");
   };
 
   // Perfil e administração dos registros esportivos.
@@ -1578,10 +2187,10 @@ export default function ResenhaApp() {
 
   const savePlayerName = () => {
     const nextName = editingPlayer?.name?.trim().slice(0, 60);
-    const original = managedPlayers.find((player) => player.id === editingPlayer?.id);
+    const original = data.players.find((player) => player.id === editingPlayer?.id);
     if (!original || !nextName) return;
     if (
-      managedPlayers.some(
+      data.players.some(
         (player) =>
           player.id !== original.id && player.name.toLowerCase() === nextName.toLowerCase(),
       )
@@ -1692,8 +2301,13 @@ export default function ResenhaApp() {
       setSettingsMessage("Informe a senha atual.");
       return;
     }
-    if (newPassword.length < 6) {
-      setSettingsMessage("A nova senha precisa ter pelo menos 6 caracteres.");
+    if (currentPassword !== currentPasswordConfirm) {
+      setSettingsMessage("As confirmações da senha atual não são iguais.");
+      return;
+    }
+    const issue = passwordIssue(newPassword);
+    if (issue) {
+      setSettingsMessage(issue);
       return;
     }
     if (newPassword !== confirmNewPassword) {
@@ -1701,28 +2315,40 @@ export default function ResenhaApp() {
       return;
     }
     setAuthBusy(true);
-    const { error } = await supabase.auth.updateUser({
-      password: newPassword,
-      current_password: currentPassword,
-    });
-    setAuthBusy(false);
-    if (error) {
-      setSettingsMessage(
-        error.message.toLowerCase().includes("current")
-          ? "A senha atual está incorreta."
-          : "Não foi possível alterar a senha. Tente novamente.",
-      );
-      return;
+    try {
+      // O Supabase não valida `current_password` em updateUser; a reautenticação precisa ser explícita.
+      const email = session?.user?.email;
+      if (!email) throw new Error("missing-email");
+      const verification = await supabase.auth.signInWithPassword({
+        email,
+        password: currentPassword,
+      });
+      if (verification.error) {
+        setSettingsMessage("A senha atual está incorreta.");
+        return;
+      }
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      if (error) {
+        setSettingsMessage(friendlyAuthError(error, "Não foi possível alterar a senha."));
+        return;
+      }
+      setCurrentPassword("");
+      setCurrentPasswordConfirm("");
+      setNewPassword("");
+      setConfirmNewPassword("");
+      setSettingsMessage("Senha alterada com sucesso.");
+    } catch {
+      setSettingsMessage("Falha de conexão. Tente novamente.");
+    } finally {
+      setAuthBusy(false);
     }
-    setCurrentPassword("");
-    setNewPassword("");
-    setConfirmNewPassword("");
-    setSettingsMessage("Senha alterada com sucesso.");
   };
 
   const signOut = async () => {
+    const signedUserId = session?.user?.id;
     if (dirtyRef.current) await syncNow();
     await supabase.auth.signOut();
+    if (signedUserId) localStorage.removeItem(userStorageKey(signedUserId, activeGroupId));
     setProfileMenuOpen(false);
     setProfileOpen(false);
     setData(initialState);
@@ -1735,12 +2361,121 @@ export default function ResenhaApp() {
     setView("setup");
   };
 
+  const switchGroup = async (nextGroupId, force = false) => {
+    if (!nextGroupId || nextGroupId === activeGroupId || (groupBusy && !force)) return;
+    setGroupBusy(true);
+    if (dirtyRef.current) await syncNow();
+    cloudLoadedUser.current = null;
+    dirtyRef.current = false;
+    setReady(false);
+    setPublicConfig({ page: null, games: [] });
+    setSettingsMessage("");
+    viewAfterGroupSwitchRef.current = view;
+    setActiveGroupId(nextGroupId);
+    safeLocalStorageSet(`${ACTIVE_GROUP_PREFIX}:${session.user.id}`, nextGroupId);
+    setPlayerPage(1);
+    setGroupBusy(false);
+  };
+
+  const submitNewGroup = async (event) => {
+    event.preventDefault();
+    if (groupBusy) return;
+    setGroupBusy(true);
+    try {
+      if (dirtyRef.current) await syncNow();
+      const created = await createGroup(session.user.id, groupName, groupCreationMode);
+      setGroups((current) => [...current, created]);
+      setGroupName("");
+      setGroupModalOpen(false);
+      setGroupBusy(false);
+      setWorkspaceMode(created.management_mode || groupCreationMode);
+      await switchGroup(created.id, true);
+    } catch (error) {
+      setSettingsMessage(`Não foi possível criar o grupo: ${error.message}`);
+    } finally {
+      setGroupBusy(false);
+    }
+  };
+
+  const selectWorkspaceMode = async (nextMode) => {
+    const matchingGroups = groups.filter(
+      (group) => (group.management_mode || "amateur") === nextMode,
+    );
+    if (!matchingGroups.length) {
+      setGroupCreationMode(nextMode);
+      setGroupName("");
+      setGroupModalOpen(true);
+      return;
+    }
+    setWorkspaceMode(nextMode);
+    await switchGroup(matchingGroups[0].id);
+  };
+
+  const saveManagedGroup = async (event) => {
+    event.preventDefault();
+    if (!settingsGroupEdit) return;
+    try {
+      let updated = await renameGroup(
+        session.user.id,
+        settingsGroupEdit.id,
+        settingsGroupEdit.name,
+      );
+      if ((updated.management_mode || "amateur") !== settingsGroupEdit.management_mode) {
+        updated = await changeGroupMode(
+          session.user.id,
+          settingsGroupEdit.id,
+          settingsGroupEdit.management_mode,
+        );
+      }
+      setGroups((current) => current.map((group) => (group.id === updated.id ? updated : group)));
+      if (updated.id === activeGroupId) {
+        setWorkspaceMode(updated.management_mode || "amateur");
+        setSettingsAdminMode(updated.management_mode || "amateur");
+      }
+      setSettingsGroupEdit(null);
+      setSettingsMessage("Organização atualizada.");
+    } catch (error) {
+      setSettingsMessage(`Não foi possível salvar: ${error.message}`);
+    }
+  };
+
+  const selectSettingsManagement = async (mode) => {
+    setSettingsAdminMode(mode);
+    setSettingsGroupEdit(null);
+    const firstGroup = groups.find((group) => (group.management_mode || "amateur") === mode);
+    if (firstGroup && firstGroup.id !== activeGroupId) {
+      setWorkspaceMode(mode);
+      await switchGroup(firstGroup.id);
+    }
+  };
+
+  const deleteManagedGroup = async (group) => {
+    if (!window.confirm(`Excluir “${group.name}” e todos os dados vinculados?`)) return;
+    try {
+      const fallback = groups.find((item) => item.id !== group.id);
+      await deleteGroup(session.user.id, group.id);
+      setGroups((current) => current.filter((item) => item.id !== group.id));
+      setSettingsGroupEdit(null);
+      if (group.id === activeGroupId && fallback) {
+        setWorkspaceMode(fallback.management_mode || "amateur");
+        await switchGroup(fallback.id, true);
+      }
+      setSettingsMessage("Organização excluída.");
+    } catch (error) {
+      setSettingsMessage(`Não foi possível excluir: ${error.message}`);
+    }
+  };
+
   // Paginação do histórico e administração do Mural público.
   const fetchMoreHistory = async () => {
     if (!session?.user || historyLoading || !historyHasMore) return;
     setHistoryLoading(true);
     try {
-      const page = await loadMoreHistory(session.user.id, dataRef.current.history.length);
+      const page = await loadMoreHistory(
+        session.user.id,
+        activeGroupId,
+        dataRef.current.history.length,
+      );
       setData((current) => ({
         ...current,
         history: [
@@ -1758,11 +2493,17 @@ export default function ResenhaApp() {
   const refreshPublicConfig = useCallback(async () => {
     if (!session?.user) return;
     try {
-      setPublicConfig(await getPublicSettings(session.user.id, "Mural da Resenha"));
+      setPublicConfig(
+        await getPublicSettings(
+          session.user.id,
+          activeGroupId,
+          activeGroup?.name || "Portal esportivo",
+        ),
+      );
     } catch (error) {
       setSettingsMessage(`Não foi possível carregar a página pública: ${error.message}`);
     }
-  }, [displayName, session?.user?.id]);
+  }, [activeGroup?.name, activeGroupId, session?.user?.id]);
 
   useEffect(() => {
     if ((view === "mural" || view === "stats") && ready) refreshPublicConfig();
@@ -1770,7 +2511,7 @@ export default function ResenhaApp() {
 
   const togglePublicPage = async () => {
     const enabled = !publicConfig.page?.enabled;
-    await setPublicEnabled(session.user.id, enabled);
+    await setPublicEnabled(session.user.id, activeGroupId, enabled);
     setPublicConfig((current) => ({ ...current, page: { ...current.page, enabled } }));
     setSettingsMessage(
       enabled
@@ -1783,7 +2524,7 @@ export default function ResenhaApp() {
     event.preventDefault();
     if (!publicDraft.title.trim() || !publicDraft.scheduled_at) return;
     try {
-      await addUpcomingGame(session.user.id, {
+      await addUpcomingGame(session.user.id, activeGroupId, {
         title: publicDraft.title.trim(),
         sport: publicDraft.sport,
         scheduled_at: new Date(publicDraft.scheduled_at).toISOString(),
@@ -1798,7 +2539,7 @@ export default function ResenhaApp() {
   };
 
   const removeUpcomingGame = async (id) => {
-    await deleteUpcomingGame(session.user.id, id);
+    await deleteUpcomingGame(session.user.id, activeGroupId, id);
     await refreshPublicConfig();
   };
 
@@ -1813,7 +2554,7 @@ export default function ResenhaApp() {
 
   const openPublicRanking = () => {
     if (!publicConfig.page?.enabled) {
-      setSettingsMessage("Ative o Mural da Resenha para compartilhar o ranking.");
+      setSettingsMessage("Ative o portal público para compartilhar a classificação.");
       setView("mural");
       return;
     }
@@ -1824,7 +2565,7 @@ export default function ResenhaApp() {
   const exportBackup = async () => {
     let backup = dataRef.current;
     try {
-      backup = { ...backup, history: await loadAllHistory(session.user.id) };
+      backup = { ...backup, history: await loadAllHistory(session.user.id, activeGroupId) };
     } catch {}
     const file = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(file);
@@ -1944,6 +2685,8 @@ export default function ResenhaApp() {
         setEmail={setAuthEmail}
         password={authPassword}
         setPassword={setAuthPassword}
+        passwordConfirm={authPasswordConfirm}
+        setPasswordConfirm={setAuthPasswordConfirm}
         showPassword={showPassword}
         setShowPassword={setShowPassword}
         message={authMessage}
@@ -1954,7 +2697,38 @@ export default function ResenhaApp() {
         setTheme={setTheme}
       />
     );
-  if (!ready) return <main className="app-shell loading">Preparando o Resenha…</main>;
+  if (!ready)
+    return (
+      <main className="app-shell loading">
+        {groupLoadError ? (
+          <section className="startup-error" role="alert">
+            <span>
+              <CloudOff size={28} />
+            </span>
+            <div>
+              <small>FALHA AO ABRIR O RESENHA</small>
+              <h1>Não foi possível carregar os dados</h1>
+              <p>{groupLoadError}</p>
+            </div>
+            <div className="startup-error-actions">
+              <button
+                className="button primary"
+                onClick={() => setGroupLoadAttempt((value) => value + 1)}
+              >
+                <RefreshCw size={18} /> Tentar novamente
+              </button>
+              <button className="button secondary" onClick={() => supabase.auth.signOut()}>
+                <LogOut size={18} /> Sair da conta
+              </button>
+            </div>
+          </section>
+        ) : (
+          <div className="startup-loading">
+            <RefreshCw className="spin" size={24} /> Preparando o Resenha…
+          </div>
+        )}
+      </main>
+    );
   const currentRankingKind = sportKind(statsSport);
   const primaryRanking = displayedRanking;
   const displayedScores = displayedRanking.reduce((sum, player) => sum + player.goals, 0);
@@ -1966,6 +2740,29 @@ export default function ResenhaApp() {
       : rankingScope === "month"
         ? monthMatches.length
         : sportMatches.length;
+  const academyPositions =
+    canonicalSport(data.settings.sport) === "Futebol de Salão"
+      ? ["Goleiro", "Fixo", "Ala", "Pivô"]
+      : canonicalSport(data.settings.sport) === "Futebol Society"
+        ? ["Goleiro", "Zagueiro", "Ala", "Volante", "Meia", "Atacante"]
+        : ["Goleiro", "Lateral", "Zagueiro", "Volante", "Meia", "Ponta", "Atacante"];
+  const academyCategories = [
+    ...new Set([
+      ...groups
+        .filter((group) => (group.management_mode || "amateur") === "academy")
+        .map((group) => group.name),
+      ...data.players.map((player) => player.academyProfile?.category).filter(Boolean),
+    ]),
+  ].sort((a, b) => a.localeCompare(b, "pt-BR"));
+  const playersInCurrentMatch = match
+    ? [
+        ...new Map(
+          match.teams
+            .flatMap((team) => [...team.starters, ...team.bench])
+            .map((player) => [player.id, player]),
+        ).values(),
+      ]
+    : [];
 
   // Interface autenticada principal.
   return (
@@ -1992,18 +2789,43 @@ export default function ResenhaApp() {
         onOpenSettings={() => {
           setProfileMenuOpen(false);
           setSettingsMessage("");
+          setSettingsAdminMode(workspaceMode);
           setView("settings");
         }}
         onOpenPassword={() => {
           setProfileMenuOpen(false);
           setSettingsMessage("");
           setCurrentPassword("");
+          setCurrentPasswordConfirm("");
           setNewPassword("");
           setConfirmNewPassword("");
           setView("password");
         }}
         onSignOut={signOut}
+        academyMode={workspaceMode === "academy"}
+        notifications={academyNotifications}
+        notificationsOpen={notificationsOpen}
+        setNotificationsOpen={setNotificationsOpen}
+        notificationsRef={notificationsRef}
+        unreadNotifications={unreadNotifications}
+        onNotificationsRead={markAcademyNotificationsAsRead}
       />
+
+      {view !== "settings" && (
+        <GroupBar
+          groups={visibleGroups}
+          activeGroupId={activeGroupId}
+          onChange={switchGroup}
+          onCreate={() => {
+            setGroupCreationMode(workspaceMode);
+            setGroupName("");
+            setGroupModalOpen(true);
+          }}
+          busy={groupBusy}
+          managementMode={workspaceMode}
+          onModeChange={selectWorkspaceMode}
+        />
+      )}
 
       <div className="page-wrap">
         {view === "setup" && (
@@ -2014,38 +2836,57 @@ export default function ResenhaApp() {
                   <span className="eyebrow">PASSO 1</span>
                   <h1>Quem vai jogar hoje?</h1>
                 </div>
-                <span className="count-pill">{data.players.length} cadastrados</span>
+                <span className="count-pill">{activePlayers.length} ativos</span>
               </div>
-              <form
-                className="add-player"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  addPlayer();
-                }}
-              >
-                <div className="field grow">
-                  <label htmlFor="player-name">Nome do jogador</label>
-                  <input
-                    ref={nameInput}
-                    id="player-name"
-                    maxLength="60"
-                    value={playerName}
-                    onChange={(event) => setPlayerName(event.target.value)}
-                    placeholder="Ex.: João"
-                    autoComplete="off"
-                  />
+              {workspaceMode === "academy" ? (
+                <div className="academy-add-actions">
+                  <button
+                    className="button primary academy-add-button"
+                    type="button"
+                    onClick={openNewAcademyPlayer}
+                  >
+                    <UserPlus size={19} /> Adicionar aluno
+                  </button>
+                  <button
+                    className="button secondary academy-blank-form-button"
+                    type="button"
+                    onClick={downloadBlankStudentForm}
+                  >
+                    <Download size={18} /> Ficha cadastro
+                  </button>
                 </div>
-                <button className="button primary add-button" type="submit">
-                  <UserPlus size={19} /> Adicionar
-                </button>
-              </form>
+              ) : (
+                <form
+                  className="add-player"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    addPlayer();
+                  }}
+                >
+                  <div className="field grow">
+                    <label htmlFor="player-name">Nome do jogador</label>
+                    <input
+                      ref={nameInput}
+                      id="player-name"
+                      maxLength="60"
+                      value={playerName}
+                      onChange={(event) => setPlayerName(event.target.value)}
+                      placeholder="Ex.: João"
+                      autoComplete="off"
+                    />
+                  </div>
+                  <button className="button primary add-button" type="submit">
+                    <UserPlus size={19} /> Adicionar
+                  </button>
+                </form>
+              )}
               <div className="attendance-toolbar">
                 <div>
                   <Check size={18} />
                   <span>
                     <strong>Presença de hoje</strong>
                     <small>
-                      {presentPlayers.length} de {data.players.length} confirmados
+                      {presentPlayers.length} de {activePlayers.length} confirmados
                     </small>
                   </span>
                 </div>
@@ -2059,7 +2900,7 @@ export default function ResenhaApp() {
                 </div>
               </div>
               <div className="player-list">
-                {data.players.length === 0 ? (
+                {activePlayers.length === 0 ? (
                   <Empty
                     icon={<Users size={28} />}
                     title="A lista ainda está vazia"
@@ -2098,26 +2939,38 @@ export default function ResenhaApp() {
                           </small>
                           {stats.lastRating !== null && <em>Último jogo: {stats.lastRating}★</em>}
                         </div>
-                        <button
-                          className={`presence-button ${present ? "present" : ""}`}
-                          type="button"
-                          onClick={() => toggleAttendance(player.id)}
-                          aria-pressed={present}
-                        >
-                          {present ? (
-                            <>
-                              <Check size={15} /> Presente
-                            </>
-                          ) : (
-                            "Ausente"
+                        <div className="player-row-actions">
+                          {workspaceMode === "academy" && (
+                            <button
+                              className="button secondary player-info-button"
+                              type="button"
+                              onClick={() => openPlayerDetails(player)}
+                              aria-label={`Abrir ficha de ${player.name}`}
+                            >
+                              <UserRound size={16} /> Ficha
+                            </button>
                           )}
-                        </button>
+                          <button
+                            className={`presence-button ${present ? "present" : ""}`}
+                            type="button"
+                            onClick={() => toggleAttendance(player.id)}
+                            aria-pressed={present}
+                          >
+                            {present ? (
+                              <>
+                                <Check size={15} /> Presente
+                              </>
+                            ) : (
+                              "Ausente"
+                            )}
+                          </button>
+                        </div>
                       </article>
                     );
                   })
                 )}
               </div>
-              {data.players.length > PLAYER_PAGE_SIZE && (
+              {activePlayers.length > PLAYER_PAGE_SIZE && (
                 <Pagination
                   page={playerPage}
                   pageCount={playerPageCount}
@@ -2140,9 +2993,15 @@ export default function ResenhaApp() {
                   value={canonicalSport(data.settings.sport)}
                   onChange={(event) => changeSport(event.target.value)}
                 >
-                  {Object.keys(SPORT_PRESETS).map((sport) => (
-                    <option key={sport}>{sport}</option>
-                  ))}
+                  {Object.keys(SPORT_PRESETS)
+                    .filter(
+                      (sport) =>
+                        workspaceMode !== "academy" ||
+                        ["Futebol", "Futebol Society", "Futebol de Salão"].includes(sport),
+                    )
+                    .map((sport) => (
+                      <option key={sport}>{sport}</option>
+                    ))}
                 </select>
               </div>
               <div className="three-fields">
@@ -2224,7 +3083,7 @@ export default function ResenhaApp() {
                   {data.settings.sharedBench && <Check size={15} />}
                 </span>
                 <span>
-                  <strong>Banco geral da resenha</strong>
+                  <strong>Banco compartilhado</strong>
                   <small>
                     Marcado: qualquer reserva pode entrar nos dois times. Desmarcado: cada time usa
                     somente os próprios reservas.
@@ -2354,7 +3213,7 @@ export default function ResenhaApp() {
           <section className="match-view">
             <div className="session-bar">
               <div>
-                <span className="eyebrow">RESENHA EM ANDAMENTO</span>
+                <span className="eyebrow">SESSÃO EM ANDAMENTO</span>
                 <strong>Partida {match.roundNumber || 1}</strong>
                 <small>
                   {matchMessage || "A escalação continuará salva quando esta partida terminar."}
@@ -2364,6 +3223,14 @@ export default function ResenhaApp() {
                 <ArrowDownUp size={15} />
                 {match.sharedBench ? "Banco geral" : "Reservas por time"}
               </span>
+              {workspaceMode === "academy" && (
+                <button
+                  className="button secondary player-information-trigger"
+                  onClick={() => setMatchInfoOpen(true)}
+                >
+                  <UserRound size={16} /> Informações dos jogadores
+                </button>
+              )}
             </div>
             <section className="match-score-hero" aria-label="Placar da partida">
               <div className="scoreboard">
@@ -2401,7 +3268,7 @@ export default function ResenhaApp() {
               <section className="reserve-teams">
                 <header>
                   <div>
-                    <span className="eyebrow">FILA DA RESENHA</span>
+                    <span className="eyebrow">FILA DE EQUIPES</span>
                     <h2>Times de fora</h2>
                   </div>
                   <small>
@@ -2520,7 +3387,7 @@ export default function ResenhaApp() {
                     <Check size={16} /> Finalizar partida
                   </button>
                   <button className="button secondary danger-finish" onClick={endSession}>
-                    <X size={16} /> Finalizar resenha
+                    <X size={16} /> Encerrar sessão
                   </button>
                 </div>
               </aside>
@@ -2540,9 +3407,15 @@ export default function ResenhaApp() {
               </div>
               <div className="stats-filters">
                 <select value={statsSport} onChange={(event) => setStatsSport(event.target.value)}>
-                  {Object.keys(SPORT_PRESETS).map((sport) => (
-                    <option key={sport}>{sport}</option>
-                  ))}
+                  {Object.keys(SPORT_PRESETS)
+                    .filter(
+                      (sport) =>
+                        workspaceMode !== "academy" ||
+                        ["Futebol", "Futebol Society", "Futebol de Salão"].includes(sport),
+                    )
+                    .map((sport) => (
+                      <option key={sport}>{sport}</option>
+                    ))}
                 </select>
                 <label className="month-picker">
                   <CalendarDays size={18} />
@@ -2640,7 +3513,7 @@ export default function ResenhaApp() {
                 <article className="ranking-table-card">
                   <header>
                     <div>
-                      <span className="eyebrow">TABELA OFICIAL DA ZOEIRA</span>
+                      <span className="eyebrow">DESEMPENHO CONSOLIDADO</span>
                       <h2>
                         {rankingScope === "match"
                           ? "Avaliação da partida"
@@ -2650,15 +3523,31 @@ export default function ResenhaApp() {
                       </h2>
                     </div>
                     <button className="button secondary" onClick={openPublicRanking}>
-                      <Globe2 size={17} /> Abrir no Mural
+                      <Globe2 size={17} /> Abrir portal público
                     </button>
                   </header>
                   <p className="rating-explanation">
                     <Shield size={16} /> A nota de cada partida começa em 6,0. Vitória vale +0,35,
-                    empate +0,15, cada {scoreAction(statsSport).toLowerCase()} +0,55 e assistência
-                    +0,30. O bônus ofensivo é limitado a +2,0; ações de goleiro têm pesos próprios.
+                    empate +0,15 e cada {scoreAction(statsSport).toLowerCase()} +0,55.
+                    {currentRankingKind === "football" && " Assistência vale +0,30."}
+                    {workspaceMode === "academy" && " A presença vale +0,20."} O bônus ofensivo é
+                    limitado a +2,0
+                    {currentRankingKind === "football" && "; ações de goleiro têm pesos próprios"}.
                   </p>
-                  <PerformanceTable ranking={displayedRanking} sport={statsSport} />
+                  <PerformanceTable
+                    ranking={displayedRanking.map((player) => {
+                      const profile = data.players.find(
+                        (item) => item.id === player.id,
+                      )?.academyProfile;
+                      return {
+                        ...player,
+                        category: profile?.category || "",
+                        primaryPosition: profile?.primaryPosition || "",
+                      };
+                    })}
+                    sport={statsSport}
+                    academy={workspaceMode === "academy"}
+                  />
                 </article>
               </>
             )}
@@ -3383,9 +4272,9 @@ export default function ResenhaApp() {
           <section className="mural-view">
             <div className="mural-hero">
               <div>
-                <span className="eyebrow">A TABELA OFICIAL DA ZOEIRA</span>
-                <h1>Mural da Resenha</h1>
-                <p>Escolha a modalidade, publique o link e deixe a classificação falar por si.</p>
+                <span className="eyebrow">GESTÃO E TRANSPARÊNCIA</span>
+                <h1>Portal público</h1>
+                <p>Publique classificações, agenda e resultados em um ambiente somente leitura.</p>
               </div>
               <Globe2 size={46} />
             </div>
@@ -3400,7 +4289,7 @@ export default function ResenhaApp() {
                   <Globe2 size={20} />
                 </span>
                 <div>
-                  <h2>Compartilhar o Mural</h2>
+                  <h2>Compartilhar portal</h2>
                   <p>O link é público, mas continua estritamente em modo de leitura.</p>
                 </div>
                 {publicConfig.page && (
@@ -3418,9 +4307,15 @@ export default function ResenhaApp() {
                       value={statsSport}
                       onChange={(event) => setStatsSport(event.target.value)}
                     >
-                      {Object.keys(SPORT_PRESETS).map((sport) => (
-                        <option key={sport}>{sport}</option>
-                      ))}
+                      {Object.keys(SPORT_PRESETS)
+                        .filter(
+                          (sport) =>
+                            workspaceMode !== "academy" ||
+                            ["Futebol", "Futebol Society", "Futebol de Salão"].includes(sport),
+                        )
+                        .map((sport) => (
+                          <option key={sport}>{sport}</option>
+                        ))}
                     </select>
                     <small>
                       Ao trocar, copie novamente o endereço. O visitante verá somente esta
@@ -3460,9 +4355,15 @@ export default function ResenhaApp() {
                           setPublicDraft({ ...publicDraft, sport: event.target.value })
                         }
                       >
-                        {Object.keys(SPORT_PRESETS).map((sport) => (
-                          <option key={sport}>{sport}</option>
-                        ))}
+                        {Object.keys(SPORT_PRESETS)
+                          .filter(
+                            (sport) =>
+                              workspaceMode !== "academy" ||
+                              ["Futebol", "Futebol Society", "Futebol de Salão"].includes(sport),
+                          )
+                          .map((sport) => (
+                            <option key={sport}>{sport}</option>
+                          ))}
                       </select>
                     </div>
                     <div className="field">
@@ -3530,7 +4431,7 @@ export default function ResenhaApp() {
                 <KeyRound size={23} />
               </span>
               <h1>Trocar senha</h1>
-              <p>Confirme a senha atual e informe a nova senha duas vezes.</p>
+              <p>Digite a senha atual duas vezes e depois confirme a nova senha.</p>
               {settingsMessage && (
                 <p className="settings-message" role="status">
                   {settingsMessage}
@@ -3543,9 +4444,22 @@ export default function ResenhaApp() {
                     id="current-password"
                     type="password"
                     required
+                    maxLength="128"
                     autoComplete="current-password"
                     value={currentPassword}
                     onChange={(event) => setCurrentPassword(event.target.value)}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="current-password-confirm">Repita a senha atual</label>
+                  <input
+                    id="current-password-confirm"
+                    type="password"
+                    required
+                    maxLength="128"
+                    autoComplete="current-password"
+                    value={currentPasswordConfirm}
+                    onChange={(event) => setCurrentPasswordConfirm(event.target.value)}
                   />
                 </div>
                 <div className="field">
@@ -3553,7 +4467,8 @@ export default function ResenhaApp() {
                   <input
                     id="new-logged-password"
                     type="password"
-                    minLength="6"
+                    minLength={PASSWORD_MIN_LENGTH}
+                    maxLength="128"
                     required
                     autoComplete="new-password"
                     value={newPassword}
@@ -3565,7 +4480,8 @@ export default function ResenhaApp() {
                   <input
                     id="confirm-logged-password"
                     type="password"
-                    minLength="6"
+                    minLength={PASSWORD_MIN_LENGTH}
+                    maxLength="128"
                     required
                     autoComplete="new-password"
                     value={confirmNewPassword}
@@ -3615,6 +4531,140 @@ export default function ResenhaApp() {
                   <Pencil size={17} /> Editar perfil
                 </button>
               </div>
+            </article>
+            <article className="settings-card organization-admin-card">
+              <header>
+                <span>
+                  <Users size={20} />
+                </span>
+                <div>
+                  <h2>Organizações</h2>
+                  <p>Administre os grupos de cada área sem sair das configurações.</p>
+                </div>
+                <b>{groups.length}/20</b>
+              </header>
+              <div className="settings-mode-tabs" role="tablist" aria-label="Área de gestão">
+                <button
+                  className={settingsAdminMode === "amateur" ? "active" : ""}
+                  onClick={() => selectSettingsManagement("amateur")}
+                >
+                  Amador
+                </button>
+                <button
+                  className={settingsAdminMode === "academy" ? "active" : ""}
+                  onClick={() => selectSettingsManagement("academy")}
+                >
+                  Treinador
+                </button>
+              </div>
+              <div className="organization-admin-list">
+                {groups
+                  .filter((group) => (group.management_mode || "amateur") === settingsAdminMode)
+                  .map((group) => (
+                    <div className="organization-admin-row" key={group.id}>
+                      {settingsGroupEdit?.id === group.id ? (
+                        <form className="organization-edit-form" onSubmit={saveManagedGroup}>
+                          <input
+                            value={settingsGroupEdit.name}
+                            maxLength="60"
+                            required
+                            onChange={(event) =>
+                              setSettingsGroupEdit({
+                                ...settingsGroupEdit,
+                                name: event.target.value,
+                              })
+                            }
+                          />
+                          <select
+                            value={settingsGroupEdit.management_mode}
+                            onChange={(event) =>
+                              setSettingsGroupEdit({
+                                ...settingsGroupEdit,
+                                management_mode: event.target.value,
+                              })
+                            }
+                          >
+                            <option value="amateur">Amador</option>
+                            <option value="academy">Treinador</option>
+                          </select>
+                          <button className="button primary" type="submit">
+                            <Save size={16} /> Salvar
+                          </button>
+                          <button
+                            className="icon-button"
+                            type="button"
+                            onClick={() => setSettingsGroupEdit(null)}
+                            aria-label="Cancelar"
+                          >
+                            <X size={17} />
+                          </button>
+                        </form>
+                      ) : (
+                        <>
+                          <div>
+                            <strong>{group.name}</strong>
+                            <small>
+                              {group.id === activeGroupId
+                                ? "Em uso agora"
+                                : settingsAdminMode === "academy"
+                                  ? "Grupo de atletas"
+                                  : "Grupo amador"}
+                            </small>
+                          </div>
+                          <div className="manage-actions">
+                            {group.id !== activeGroupId && (
+                              <button
+                                className="button secondary compact"
+                                onClick={() => {
+                                  setWorkspaceMode(group.management_mode || "amateur");
+                                  switchGroup(group.id);
+                                }}
+                              >
+                                Administrar
+                              </button>
+                            )}
+                            <button
+                              className="icon-button"
+                              onClick={() =>
+                                setSettingsGroupEdit({
+                                  ...group,
+                                  management_mode: group.management_mode || "amateur",
+                                })
+                              }
+                              aria-label={`Editar ${group.name}`}
+                            >
+                              <Pencil size={16} />
+                            </button>
+                            <button
+                              className="icon-button danger"
+                              disabled={groups.length <= 1}
+                              onClick={() => deleteManagedGroup(group)}
+                              aria-label={`Excluir ${group.name}`}
+                            >
+                              <Trash2 size={16} />
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                {!groups.some(
+                  (group) => (group.management_mode || "amateur") === settingsAdminMode,
+                ) && (
+                  <p className="organization-empty">Nenhuma organização cadastrada nesta área.</p>
+                )}
+              </div>
+              <button
+                className="button secondary"
+                onClick={() => {
+                  setGroupCreationMode(settingsAdminMode);
+                  setGroupName("");
+                  setGroupModalOpen(true);
+                }}
+              >
+                <Plus size={17} /> Adicionar{" "}
+                {settingsAdminMode === "academy" ? "grupo de atletas" : "grupo amador"}
+              </button>
             </article>
             <article className="settings-card cloud-settings-card">
               <header>
@@ -3680,9 +4730,9 @@ export default function ResenhaApp() {
                     também remove as pontuações do histórico.
                   </p>
                 </div>
-                <b>{managedPlayers.length}</b>
+                <b>{data.players.length}</b>
               </header>
-              {managedPlayers.length === 0 ? (
+              {data.players.length === 0 ? (
                 <Empty
                   icon={<Users size={27} />}
                   title="Nenhum jogador cadastrado"
@@ -3690,8 +4740,11 @@ export default function ResenhaApp() {
                 />
               ) : (
                 <div className="manage-list">
-                  {managedPlayers.map((player) => (
-                    <div className="manage-row" key={player.id}>
+                  {data.players.map((player) => (
+                    <div
+                      className={`manage-row ${player.suspended ? "is-suspended" : ""}`}
+                      key={player.id}
+                    >
                       <Avatar name={player.name} />
                       {editingPlayer?.id === player.id ? (
                         <input
@@ -3711,10 +4764,9 @@ export default function ResenhaApp() {
                         <div>
                           <strong>{player.name}</strong>
                           <small>
-                            {player.totalPoints} pontos · {player.totalAssists} assistências
-                            {player.registered
-                              ? ` · nível ${playerStats.get(player.id)?.rating || 1}★`
-                              : " · somente no ranking"}
+                            {player.suspended
+                              ? "Suspenso · fora das seleções e classificações"
+                              : `Ativo · nível ${playerStats.get(player.id)?.rating || 1}★`}
                           </small>
                         </div>
                       )}
@@ -3737,16 +4789,33 @@ export default function ResenhaApp() {
                             </button>
                           </>
                         ) : (
-                          <button
-                            className="icon-button"
-                            onClick={() => {
-                              setEditingPlayer({ id: player.id, name: player.name });
-                              setSettingsMessage("");
-                            }}
-                            aria-label={`Editar ${player.name}`}
-                          >
-                            <Pencil size={16} />
-                          </button>
+                          <>
+                            {workspaceMode === "academy" && (
+                              <button
+                                className="icon-button"
+                                onClick={() => openPlayerDetails(player)}
+                                aria-label={`Abrir ficha de ${player.name}`}
+                              >
+                                <UserRound size={16} />
+                              </button>
+                            )}
+                            <button
+                              className="icon-button"
+                              onClick={() => {
+                                setEditingPlayer({ id: player.id, name: player.name });
+                                setSettingsMessage("");
+                              }}
+                              aria-label={`Editar ${player.name}`}
+                            >
+                              <Pencil size={16} />
+                            </button>
+                            <button
+                              className={`button suspension-button ${player.suspended ? "reactivate" : ""}`}
+                              onClick={() => togglePlayerSuspension(player.id)}
+                            >
+                              {player.suspended ? "Reativar" : "Suspender"}
+                            </button>
+                          </>
                         )}
                         <button
                           className="icon-button danger"
@@ -3838,6 +4907,485 @@ export default function ResenhaApp() {
       </div>
 
       <SiteFooter />
+
+      {notificationWelcomeOpen && workspaceMode === "academy" && (
+        <Modal
+          onClose={() => setNotificationWelcomeOpen(false)}
+          icon={
+            <img
+              className="notification-modal-emblem"
+              src={brandIconSrc}
+              alt=""
+              aria-hidden="true"
+            />
+          }
+          color="green"
+          title="Avisos do Modo Treinador"
+          text="Confira as informações que precisam de atenção hoje. Elas também ficam disponíveis no sino do cabeçalho."
+        >
+          <div className="notification-welcome-list">
+            {academyNotifications.map((notification) => (
+              <article className={`notification-item ${notification.type}`} key={notification.id}>
+                <div>
+                  <strong>{notification.title}</strong>
+                  <p>{notification.message}</p>
+                  <small>{notification.dateLabel}</small>
+                </div>
+              </article>
+            ))}
+          </div>
+          <button
+            className="button primary full"
+            type="button"
+            onClick={() => setNotificationWelcomeOpen(false)}
+          >
+            Entendi
+          </button>
+        </Modal>
+      )}
+
+      {matchInfoOpen && !playerDetails && (
+        <Modal
+          onClose={() => setMatchInfoOpen(false)}
+          icon={<Users size={25} />}
+          color="green"
+          title="Informações dos jogadores"
+          text="Selecione um jogador em campo ou no banco. Os dados desta área são privados."
+        >
+          <div className="match-player-info-list">
+            {playersInCurrentMatch.map((matchPlayer) => {
+              const registered = data.players.find((player) => player.id === matchPlayer.id);
+              return (
+                <button
+                  key={matchPlayer.id}
+                  onClick={() => registered && openPlayerDetails(registered)}
+                  disabled={!registered}
+                >
+                  <Avatar name={matchPlayer.name} />
+                  <span>
+                    <strong>{matchPlayer.name}</strong>
+                    <small>
+                      {registered?.academyProfile?.primaryPosition ||
+                        "Ficha técnica não preenchida"}
+                    </small>
+                  </span>
+                  <ChevronRight size={17} />
+                </button>
+              );
+            })}
+          </div>
+        </Modal>
+      )}
+
+      {playerDetails && (
+        <Modal
+          onClose={() => setPlayerDetails(null)}
+          icon={<UserRound size={25} />}
+          color="green"
+          title={playerDetails.playerId ? "Ficha técnica e de segurança" : "Cadastrar aluno"}
+          text="Informações privadas para apoio ao treinador. Nada desta ficha é publicado no portal."
+        >
+          <form className="academy-player-form" onSubmit={savePlayerDetails}>
+            <nav className="academy-form-tabs" aria-label="Seções da ficha">
+              <button
+                type="button"
+                className={playerDetailsTab === "student" ? "active" : ""}
+                onClick={() => setPlayerDetailsTab("student")}
+              >
+                Dados do aluno
+              </button>
+              <button
+                type="button"
+                className={playerDetailsTab === "health" ? "active" : ""}
+                onClick={() => setPlayerDetailsTab("health")}
+              >
+                Saúde e segurança
+              </button>
+              <button
+                type="button"
+                className={playerDetailsTab === "tuition" ? "active" : ""}
+                onClick={() => setPlayerDetailsTab("tuition")}
+              >
+                Mensalidade
+              </button>
+            </nav>
+
+            {playerDetailsTab === "student" && (
+              <section className="academy-tab-panel">
+                <h3>Dados técnicos e de jogo</h3>
+                <div className="two-fields">
+                  <div className="field">
+                    <label htmlFor="academy-name">Nome</label>
+                    <input
+                      id="academy-name"
+                      value={playerDetails.name}
+                      maxLength="60"
+                      required
+                      onChange={(e) => setPlayerDetails({ ...playerDetails, name: e.target.value })}
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="academy-nickname">Apelido</label>
+                    <input
+                      id="academy-nickname"
+                      value={playerDetails.nickname}
+                      maxLength="40"
+                      onChange={(e) =>
+                        setPlayerDetails({ ...playerDetails, nickname: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="academy-birth">Data de nascimento</label>
+                    <input
+                      id="academy-birth"
+                      type="date"
+                      value={playerDetails.birthDate}
+                      onChange={(e) =>
+                        setPlayerDetails({
+                          ...playerDetails,
+                          birthDate: e.target.value,
+                          age: calculateAge(e.target.value),
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="academy-age">Idade</label>
+                    <input
+                      id="academy-age"
+                      type="number"
+                      min="3"
+                      max="99"
+                      value={calculateAge(playerDetails.birthDate)}
+                      readOnly
+                      aria-readonly="true"
+                      placeholder="Calculada automaticamente"
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="academy-category">Categoria</label>
+                    <select
+                      id="academy-category"
+                      value={playerDetails.category}
+                      onChange={(e) =>
+                        setPlayerDetails({ ...playerDetails, category: e.target.value })
+                      }
+                    >
+                      <option value="">Selecione uma categoria</option>
+                      {academyCategories.map((category) => (
+                        <option value={category} key={category}>
+                          {category}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="academy-primary-position">Posição principal</label>
+                    <select
+                      id="academy-primary-position"
+                      value={playerDetails.primaryPosition}
+                      onChange={(e) =>
+                        setPlayerDetails({ ...playerDetails, primaryPosition: e.target.value })
+                      }
+                    >
+                      <option value="">Selecione</option>
+                      {academyPositions.map((position) => (
+                        <option key={position}>{position}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="academy-secondary-position">Posição secundária</label>
+                    <select
+                      id="academy-secondary-position"
+                      value={playerDetails.secondaryPosition}
+                      onChange={(e) =>
+                        setPlayerDetails({ ...playerDetails, secondaryPosition: e.target.value })
+                      }
+                    >
+                      <option value="">Nenhuma</option>
+                      {academyPositions.map((position) => (
+                        <option key={position}>{position}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="academy-foot">Pé dominante</label>
+                    <select
+                      id="academy-foot"
+                      value={playerDetails.dominantFoot}
+                      onChange={(e) =>
+                        setPlayerDetails({ ...playerDetails, dominantFoot: e.target.value })
+                      }
+                    >
+                      <option value="">Selecione</option>
+                      <option>Destro</option>
+                      <option>Canhoto</option>
+                      <option>Ambidestro</option>
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="academy-height">Altura (cm)</label>
+                    <input
+                      id="academy-height"
+                      type="number"
+                      min="50"
+                      max="230"
+                      value={playerDetails.height}
+                      onChange={(e) =>
+                        setPlayerDetails({ ...playerDetails, height: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="academy-weight">Peso (kg)</label>
+                    <input
+                      id="academy-weight"
+                      type="number"
+                      min="10"
+                      max="250"
+                      step="0.1"
+                      value={playerDetails.weight}
+                      onChange={(e) =>
+                        setPlayerDetails({ ...playerDetails, weight: e.target.value })
+                      }
+                    />
+                  </div>
+                </div>
+              </section>
+            )}
+            {playerDetailsTab === "health" && (
+              <section className="academy-tab-panel">
+                <h3>Saúde e segurança</h3>
+                <div className="two-fields">
+                  <div className="field">
+                    <label htmlFor="academy-restrictions">Restrições médicas</label>
+                    <textarea
+                      id="academy-restrictions"
+                      value={playerDetails.medicalRestrictions}
+                      maxLength="500"
+                      onChange={(e) =>
+                        setPlayerDetails({ ...playerDetails, medicalRestrictions: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="academy-allergies">Alergias</label>
+                    <textarea
+                      id="academy-allergies"
+                      value={playerDetails.allergies}
+                      maxLength="500"
+                      onChange={(e) =>
+                        setPlayerDetails({ ...playerDetails, allergies: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="academy-blood">Tipo sanguíneo</label>
+                    <select
+                      id="academy-blood"
+                      value={playerDetails.bloodType}
+                      onChange={(e) =>
+                        setPlayerDetails({ ...playerDetails, bloodType: e.target.value })
+                      }
+                    >
+                      <option value="">Não informado</option>
+                      {["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"].map((type) => (
+                        <option key={type}>{type}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="academy-medication">Medicamentos contínuos</label>
+                    <input
+                      id="academy-medication"
+                      value={playerDetails.continuousMedication}
+                      maxLength="200"
+                      onChange={(e) =>
+                        setPlayerDetails({ ...playerDetails, continuousMedication: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="academy-emergency-name">Contato de emergência</label>
+                    <input
+                      id="academy-emergency-name"
+                      value={playerDetails.emergencyName}
+                      maxLength="80"
+                      onChange={(e) =>
+                        setPlayerDetails({ ...playerDetails, emergencyName: e.target.value })
+                      }
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="academy-emergency-phone">Telefone de emergência</label>
+                    <input
+                      id="academy-emergency-phone"
+                      type="tel"
+                      value={playerDetails.emergencyPhone}
+                      maxLength="15"
+                      inputMode="tel"
+                      placeholder="(00) 00000-0000"
+                      onChange={(e) =>
+                        setPlayerDetails({
+                          ...playerDetails,
+                          emergencyPhone: maskPhone(e.target.value),
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+              </section>
+            )}
+            {playerDetailsTab === "tuition" && (
+              <section className="academy-tab-panel">
+                <h3>Mensalidade</h3>
+                <div className="tuition-default-bar">
+                  <div>
+                    <small>Padrão do grupo</small>
+                    <strong>
+                      {data.settings.academyMonthlyFee
+                        ? Number(data.settings.academyMonthlyFee).toLocaleString("pt-BR", {
+                            style: "currency",
+                            currency: "BRL",
+                          })
+                        : "Valor não definido"}
+                      {data.settings.academyDueDay
+                        ? ` · vencimento dia ${data.settings.academyDueDay}`
+                        : ""}
+                    </strong>
+                  </div>
+                  <button
+                    className="button secondary compact"
+                    type="button"
+                    onClick={saveAcademyTuitionDefaults}
+                  >
+                    Salvar como padrão
+                  </button>
+                </div>
+                {settingsMessage && (
+                  <p className="form-message tuition-message">{settingsMessage}</p>
+                )}
+                <div className="two-fields tuition-fields">
+                  <div className="field">
+                    <label htmlFor="academy-tuition-type">Categoria de pagamento</label>
+                    <select
+                      id="academy-tuition-type"
+                      value={playerDetails.tuitionType || "paying"}
+                      onChange={(e) =>
+                        setPlayerDetails({ ...playerDetails, tuitionType: e.target.value })
+                      }
+                    >
+                      <option value="paying">Pagante</option>
+                      <option value="scholarship50">Bolsista 50%</option>
+                      <option value="scholarship100">Bolsista 100%</option>
+                    </select>
+                    <small className="field-hint">
+                      Valor deste aluno:{" "}
+                      {(
+                        (Number(playerDetails.monthlyFee) || 0) *
+                        (playerDetails.tuitionType === "scholarship100"
+                          ? 0
+                          : playerDetails.tuitionType === "scholarship50"
+                            ? 0.5
+                            : 1)
+                      ).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                    </small>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="academy-monthly-fee">Valor integral da mensalidade</label>
+                    <input
+                      id="academy-monthly-fee"
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={playerDetails.monthlyFee}
+                      onChange={(e) =>
+                        setPlayerDetails({ ...playerDetails, monthlyFee: e.target.value })
+                      }
+                      placeholder="0,00"
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="academy-due-day">Dia de vencimento</label>
+                    <input
+                      id="academy-due-day"
+                      type="number"
+                      min="1"
+                      max="31"
+                      value={playerDetails.dueDay}
+                      onChange={(e) =>
+                        setPlayerDetails({ ...playerDetails, dueDay: e.target.value })
+                      }
+                      placeholder="Ex.: 10"
+                    />
+                  </div>
+                </div>
+
+                <TuitionControl
+                  profile={playerDetails}
+                  onToggle={updateAnnualPayment}
+                  onPaidAtChange={updateAnnualPaymentDate}
+                />
+              </section>
+            )}
+            <p className="private-data-note">
+              <Shield size={15} /> Dados restritos à conta autenticada e não exibidos no portal
+              público.
+            </p>
+            <div className="academy-form-actions">
+              <button
+                className="button secondary large"
+                type="button"
+                onClick={() =>
+                  downloadStudentForm({
+                    name: playerDetails.name,
+                    academyProfile: playerDetails,
+                  })
+                }
+              >
+                <Download size={18} /> Exportar ficha em PDF
+              </button>
+              <button className="button primary large">
+                <Save size={18} /> {playerDetails.playerId ? "Salvar ficha" : "Cadastrar aluno"}
+              </button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {groupModalOpen && (
+        <Modal
+          onClose={() => !groupBusy && setGroupModalOpen(false)}
+          icon={<Users size={25} />}
+          color="green"
+          title="Criar novo grupo"
+          text={`Este espaço será criado no modo ${groupCreationMode === "academy" ? "Treinador" : "Amador"}, com dados totalmente independentes.`}
+        >
+          <form onSubmit={submitNewGroup}>
+            <div className="field">
+              <label htmlFor="new-group-name">
+                {groupCreationMode === "academy" ? "Nome do grupo de atletas" : "Nome do grupo"}
+              </label>
+              <input
+                id="new-group-name"
+                value={groupName}
+                onChange={(event) => setGroupName(event.target.value)}
+                maxLength="60"
+                placeholder={
+                  groupCreationMode === "academy" ? "Ex.: Turma Sub-12" : "Ex.: Quinta à noite"
+                }
+                autoFocus
+                required
+              />
+            </div>
+            <button className="button primary large full" disabled={groupBusy}>
+              <Plus size={18} /> {groupBusy ? "Criando..." : "Criar grupo"}
+            </button>
+          </form>
+        </Modal>
+      )}
 
       {goalTeam !== null && match && (
         <Modal
@@ -3957,8 +5505,8 @@ export default function ResenhaApp() {
           title="Fazer substituição"
           text={
             match.sharedBench
-              ? `Escolha quem sai do ${match.teams[subTeam].name}. O banco geral está disponível para os dois times.`
-              : `Escolha quem sai e quem entra no ${match.teams[subTeam].name}.`
+              ? `Escolha uma troca com o banco geral ou entre atletas que já estão em campo para alterar funções.`
+              : `Escolha uma troca com o banco ou entre atletas que já estão em campo para alterar funções.`
           }
         >
           <div className="sub-fields">
@@ -3967,7 +5515,17 @@ export default function ResenhaApp() {
               <select
                 id="player-out"
                 value={selectedOut}
-                onChange={(event) => setSelectedOut(event.target.value)}
+                onChange={(event) => {
+                  const nextOut = event.target.value;
+                  setSelectedOut(nextOut);
+                  if (selectedIn === nextOut) {
+                    setSelectedIn(
+                      match.teams[subTeam].starters.find((player) => player.id !== nextOut)?.id ||
+                        substitutionBench(match, subTeam)[0]?.id ||
+                        "",
+                    );
+                  }
+                }}
               >
                 {match.teams[subTeam].starters.map((player) => (
                   <option key={player.id} value={player.id}>
@@ -3978,15 +5536,23 @@ export default function ResenhaApp() {
             </div>
             <ArrowDownUp size={21} />
             <div className="field">
-              <label htmlFor="player-in">Entra no jogo</label>
+              <label htmlFor="player-in">Entra ou assume a posição</label>
               <select
                 id="player-in"
                 value={selectedIn}
                 onChange={(event) => setSelectedIn(event.target.value)}
               >
+                {match.teams[subTeam].starters
+                  .filter((player) => player.id !== selectedOut)
+                  .map((player) => (
+                    <option key={`field-${player.id}`} value={player.id}>
+                      {player.name} · em campo
+                      {player.id === match.teams[subTeam].goalkeeperId ? " (goleiro)" : ""}
+                    </option>
+                  ))}
                 {substitutionBench(match, subTeam).map((player) => (
                   <option key={player.id} value={player.id}>
-                    {player.name}
+                    {player.name} · banco
                     {match.sharedBench
                       ? ` · ${match.teams[player.sourceTeamIndex]?.short || "Banco"}`
                       : ""}
@@ -3995,7 +5561,11 @@ export default function ResenhaApp() {
               </select>
             </div>
           </div>
-          <button className="button primary large full" onClick={confirmSubstitution}>
+          <button
+            className="button primary large full"
+            disabled={!selectedIn || selectedIn === selectedOut}
+            onClick={confirmSubstitution}
+          >
             Confirmar troca
           </button>
         </Modal>
@@ -4076,7 +5646,7 @@ export default function ResenhaApp() {
           icon={<UserRound size={25} />}
           color="green"
           title="Meu perfil"
-          text="Personalize o nome exibido no Resenha. A inicial é criada automaticamente."
+          text="Personalize o nome exibido na conta. A inicial é criada automaticamente."
         >
           <form className="profile-form" onSubmit={saveProfile}>
             <div className="profile-initial-preview">

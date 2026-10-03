@@ -1,14 +1,60 @@
-import {
-  ArrowLeft,
-  ChevronRight,
-  CloudOff,
-  Eye,
-  EyeOff,
-  Goal,
-  LockKeyhole,
-  Mail,
-} from "lucide-react";
+import { ArrowLeft, ChevronRight, CloudOff, Eye, EyeOff, LockKeyhole, Mail } from "lucide-react";
+import { useEffect, useState } from "react";
 import { ThemeToggle } from "../common/Common";
+import { PASSWORD_MIN_LENGTH } from "../../utils/security";
+
+const mascotSrc = `${import.meta.env.BASE_URL}assets/mascote-resenha.webp`;
+const brandIconSrc = `${import.meta.env.BASE_URL}assets/icone-bola-resenha.webp`;
+const authSlides = [
+  { src: mascotSrc, alt: "Mascote esportivo do Resenha", type: "mascot" },
+  {
+    src: `${import.meta.env.BASE_URL}assets/ranking-futebol.webp`,
+    alt: "Equipe de futebol do Resenha",
+    type: "team",
+  },
+  {
+    src: `${import.meta.env.BASE_URL}assets/ranking-volei.webp`,
+    alt: "Equipe de vôlei do Resenha",
+    type: "team",
+  },
+  {
+    src: `${import.meta.env.BASE_URL}assets/ranking-basquete.webp`,
+    alt: "Equipe de basquete do Resenha",
+    type: "team",
+  },
+];
+
+function AuthSportCarousel() {
+  const [activeSlide, setActiveSlide] = useState(0);
+
+  useEffect(() => {
+    const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    if (reducedMotion) return undefined;
+    const interval = window.setInterval(
+      () => setActiveSlide((current) => (current + 1) % authSlides.length),
+      4500,
+    );
+    return () => window.clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="auth-sport-carousel" aria-live="off">
+      <div className="auth-slide-frame">
+        {authSlides.map((slide, index) => (
+          <img
+            className={`auth-slide ${slide.type} ${index === activeSlide ? "active" : ""}`}
+            src={slide.src}
+            alt={index === activeSlide ? slide.alt : ""}
+            aria-hidden={index !== activeSlide}
+            width={slide.type === "mascot" ? "720" : "1200"}
+            height={slide.type === "mascot" ? "810" : "800"}
+            key={slide.src}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
 
 export function AuthScreen({
   mode,
@@ -17,6 +63,8 @@ export function AuthScreen({
   setEmail,
   password,
   setPassword,
+  passwordConfirm,
+  setPasswordConfirm,
   showPassword,
   setShowPassword,
   message,
@@ -31,17 +79,21 @@ export function AuthScreen({
       <ThemeToggle theme={theme} setTheme={setTheme} className="auth-theme" />
       <section className="auth-hero">
         <div className="auth-brand">
-          <span className="brand-mark">
-            <Goal size={27} />
+          <span className="brand-mark mascot-brand-mark">
+            <img src={brandIconSrc} alt="" aria-hidden="true" />
           </span>
           <span>
             <strong>Resenha</strong>
             <small>Organização completa do jogo</small>
           </span>
         </div>
-        <div className="auth-copy">
-          <h1>Organize o jogo. Viva a resenha.</h1>
-          <p>Times equilibrados, placar ao vivo e desempenho em um só lugar.</p>
+        <div className="auth-stage">
+          <AuthSportCarousel />
+          <div className="auth-copy">
+            <span className="auth-kicker">A COMPETIÇÃO COMEÇA AQUI</span>
+            <h1>Entre em campo. Deixe sua marca.</h1>
+            <p>Monte os times, dispute cada lance e descubra quem domina a rodada.</p>
+          </div>
         </div>
       </section>
       <section className="auth-panel">
@@ -54,14 +106,20 @@ export function AuthScreen({
             <button
               type="button"
               className={mode === "signin" ? "active" : ""}
-              onClick={() => setMode("signin")}
+              onClick={() => {
+                setMode("signin");
+                setPasswordConfirm("");
+              }}
             >
               Entrar
             </button>
             <button
               type="button"
               className={mode === "signup" ? "active" : ""}
-              onClick={() => setMode("signup")}
+              onClick={() => {
+                setMode("signup");
+                setPasswordConfirm("");
+              }}
             >
               Criar conta
             </button>
@@ -76,6 +134,10 @@ export function AuthScreen({
                   type="email"
                   required
                   autoComplete="email"
+                  inputMode="email"
+                  autoCapitalize="none"
+                  spellCheck="false"
+                  maxLength="254"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
                   placeholder="nome@email.com"
@@ -89,12 +151,13 @@ export function AuthScreen({
                 <input
                   id="login-password"
                   type={showPassword ? "text" : "password"}
-                  minLength="6"
+                  minLength={PASSWORD_MIN_LENGTH}
+                  maxLength="128"
                   required
                   autoComplete={mode === "signup" ? "new-password" : "current-password"}
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  placeholder="Mínimo de 6 caracteres"
+                  placeholder={`Mínimo de ${PASSWORD_MIN_LENGTH} caracteres`}
                 />
                 <button
                   type="button"
@@ -105,6 +168,25 @@ export function AuthScreen({
                 </button>
               </div>
             </div>
+            {mode === "signup" && (
+              <div className="field">
+                <label htmlFor="login-password-confirm">Repita a senha</label>
+                <div className="auth-input">
+                  <LockKeyhole size={18} />
+                  <input
+                    id="login-password-confirm"
+                    type={showPassword ? "text" : "password"}
+                    minLength={PASSWORD_MIN_LENGTH}
+                    maxLength="128"
+                    required
+                    autoComplete="new-password"
+                    value={passwordConfirm}
+                    onChange={(event) => setPasswordConfirm(event.target.value)}
+                    placeholder="Digite a mesma senha novamente"
+                  />
+                </div>
+              </div>
+            )}
             {mode === "signin" && (
               <button className="forgot-button" type="button" onClick={onForgot} disabled={busy}>
                 Esqueci minha senha
@@ -143,17 +225,27 @@ export function PasswordRecoveryScreen({
       <ThemeToggle theme={theme} setTheme={setTheme} className="auth-theme" />
       <section className="auth-hero">
         <div className="auth-brand">
-          <span className="brand-mark">
-            <Goal size={27} />
+          <span className="brand-mark mascot-brand-mark">
+            <img src={brandIconSrc} alt="" aria-hidden="true" />
           </span>
           <span>
             <strong>Resenha</strong>
             <small>Recuperação de acesso</small>
           </span>
         </div>
-        <div className="auth-copy">
-          <h1>Crie uma nova senha.</h1>
-          <p>Escolha uma senha segura para voltar ao seu grupo.</p>
+        <div className="auth-stage recovery-stage">
+          <img
+            className="auth-mascot recovery-mascot"
+            src={mascotSrc}
+            alt="Mascote esportivo do Resenha"
+            width="720"
+            height="810"
+          />
+          <div className="auth-copy">
+            <span className="auth-kicker">VOLTE PARA A DISPUTA</span>
+            <h1>Recupere seu acesso.</h1>
+            <p>Defina uma nova senha e retorne ao seu grupo.</p>
+          </div>
         </div>
       </section>
       <section className="auth-panel">
@@ -171,7 +263,7 @@ export function PasswordRecoveryScreen({
               label="Nova senha"
               value={password}
               setValue={setPassword}
-              placeholder="Mínimo de 6 caracteres"
+              placeholder={`Mínimo de ${PASSWORD_MIN_LENGTH} caracteres`}
             />
             <PasswordField
               id="confirm-password"
@@ -205,7 +297,8 @@ function PasswordField({ id, label, value, setValue, placeholder }) {
         <input
           id={id}
           type="password"
-          minLength="6"
+          minLength={PASSWORD_MIN_LENGTH}
+          maxLength="128"
           required
           autoComplete="new-password"
           value={value}

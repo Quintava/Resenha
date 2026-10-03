@@ -37,7 +37,7 @@ export function RankingPanel({ title, eyebrow, ranking, valueKey, valueLabel }) 
   );
 }
 
-export function PerformanceTable({ ranking, sport }) {
+export function PerformanceTable({ ranking, sport, academy = false }) {
   if (!ranking.length)
     return (
       <Empty
@@ -77,7 +77,14 @@ export function PerformanceTable({ ranking, sport }) {
                 <td>
                   <span className="table-player">
                     <Avatar name={player.name} />
-                    <strong>{player.name}</strong>
+                    <span>
+                      <strong>{player.name}</strong>
+                      {academy && (player.category || player.primaryPosition) && (
+                        <small>
+                          {[player.category, player.primaryPosition].filter(Boolean).join(" · ")}
+                        </small>
+                      )}
+                    </span>
                   </span>
                 </td>
                 <td>{player.goals}</td>

@@ -1,5 +1,11 @@
-import { initialState, USER_STORAGE_PREFIX } from "../config/appConfig";
+import {
+  DEFAULT_GROUP_ID,
+  initialState,
+  SPORT_PRESETS,
+  USER_STORAGE_PREFIX,
+} from "../config/appConfig";
 import { normalizeCareer } from "./playerStats";
+import { canonicalSport } from "./sports";
 
 // Calcula a nota da partida com produção, resultado e penalidades individuais.
 // Mantém o cadastro e todas as referências históricas consistentes após uma edição de nome.
@@ -142,6 +148,10 @@ function normalizeMatchGoalkeepers(match) {
 // Aceita dados de versões anteriores e garante que todos os campos atuais existam.
 export function normalizeState(raw) {
   const saved = raw && typeof raw === "object" ? raw : {};
+  const requestedSport = canonicalSport(saved.settings?.sport);
+  const safeSport = Object.hasOwn(SPORT_PRESETS, requestedSport)
+    ? requestedSport
+    : initialState.settings.sport;
   const players = Array.isArray(saved.players)
     ? saved.players.map((player) => {
         const career = normalizeCareer(player.career);
@@ -155,6 +165,8 @@ export function normalizeState(raw) {
     settings: {
       ...initialState.settings,
       ...(saved.settings || {}),
+      // Migra modalidades removidas ou desconhecidas salvas por versões antigas.
+      sport: safeSport,
       hasFixedGoalkeepers:
         saved.settings?.hasFixedGoalkeepers ??
         (Array.isArray(saved.settings?.fixedGoalkeeperIds) &&
@@ -179,6 +191,9 @@ export function readSaved(key) {
   }
 }
 
-export const userStorageKey = (userId) => `${USER_STORAGE_PREFIX}:${userId}`;
+export const legacyUserStorageKey = (userId) => `${USER_STORAGE_PREFIX}:${userId}`;
+export const userStorageKey = (userId, groupId = DEFAULT_GROUP_ID) =>
+  `${USER_STORAGE_PREFIX}:${userId}:group:${groupId}`;
+
 export const hasSavedContent = (saved) =>
   saved.players.length > 0 || saved.history.length > 0 || Boolean(saved.activeMatch);

@@ -2,29 +2,49 @@ import { CAREER_VERSION } from "../config/appConfig";
 import { canonicalSport, sportKind, starsFromScore } from "./sports";
 
 export function playerPerformance(match, playerId) {
+  const isFootball = sportKind(match.sport) === "football";
   const points = pointsInMatch(match, playerId);
-  const assists = (match.events || []).filter(
-    (event) => event.type === "goal" && event.assistPlayerId === playerId,
-  ).length;
-  const ownGoals = (match.events || []).filter(
-    (event) => event.type === "own_goal" && event.playerId === playerId,
-  ).length;
-  const missedPenalties = (match.events || []).filter(
-    (event) => event.type === "missed_penalty" && event.playerId === playerId,
-  ).length;
+  const assists = isFootball
+    ? (match.events || []).filter(
+        (event) => event.type === "goal" && event.assistPlayerId === playerId,
+      ).length
+    : 0;
+  const ownGoals = isFootball
+    ? (match.events || []).filter(
+        (event) => event.type === "own_goal" && event.playerId === playerId,
+      ).length
+    : 0;
+  const missedPenalties = isFootball
+    ? (match.events || []).filter(
+        (event) => event.type === "missed_penalty" && event.playerId === playerId,
+      ).length
+    : 0;
   const teamIndex = (match.teams || []).findIndex((team) =>
     [...(team.starters || []), ...(team.bench || [])].some((player) => player.id === playerId),
   );
   const own = Number(match.score?.[teamIndex] || 0);
   const rival = Number(match.score?.[teamIndex === 0 ? 1 : 0] || 0);
   const resultBonus = teamIndex < 0 ? 0 : own > rival ? 0.35 : own === rival ? 0.15 : -0.15;
-  const assistWeight = sportKind(match.sport) === "football" ? 0.3 : 0;
+  const assistWeight = isFootball ? 0.3 : 0;
   const offensiveBonus = Math.min(2, points * 0.55 + assists * assistWeight);
   const highlight = (match.events || []).some(
     (event) => event.type === "match_highlight" && event.playerId === playerId,
   );
   const penalties = ownGoals * 0.4 + missedPenalties * 0.3;
-  const goalkeeper = goalkeeperPerformance(match, playerId);
+  const attendanceBonus = match.managementMode === "academy" ? 0.2 : 0;
+  const goalkeeper = isFootball
+    ? goalkeeperPerformance(match, playerId)
+    : {
+        seconds: 0,
+        minutes: 0,
+        saves: 0,
+        difficultSaves: 0,
+        penaltySaves: 0,
+        errors: 0,
+        goalsConceded: 0,
+        score: 0,
+        adjustment: 0,
+      };
   const score = Math.max(
     3,
     Math.min(
@@ -36,6 +56,7 @@ export function playerPerformance(match, playerId) {
           resultBonus -
           penalties +
           goalkeeper.adjustment +
+          attendanceBonus +
           (highlight ? 0.3 : 0)
         ).toFixed(1),
       ),
@@ -52,6 +73,7 @@ export function playerPerformance(match, playerId) {
     resultBonus,
     highlight,
     offensiveBonus,
+    attendanceBonus,
     goalkeeper,
   };
 }
