@@ -153,6 +153,7 @@ import {
 
 const PublicPage = lazy(() => import("../PublicPage"));
 const brandIconSrc = `${import.meta.env.BASE_URL}assets/icone-bola-resenha.webp`;
+const appBaseUrl = new URL(import.meta.env.BASE_URL, window.location.href).href;
 
 const monthlyDueDate = (month, dueDay) => {
   if (!month || !dueDay) return "";
@@ -517,7 +518,7 @@ export default function ResenhaApp() {
     ? (completedTrainingExercises / activeTraining.exercises.length) * 100
     : 0;
   const publicPageUrl = publicConfig.page
-    ? `${window.location.origin}${import.meta.env.BASE_URL}?publico=${publicConfig.page.slug}` +
+    ? `${appBaseUrl}?publico=${publicConfig.page.slug}` +
       `&esporte=${encodeURIComponent(statsSport)}`
     : "";
 
@@ -2077,7 +2078,7 @@ export default function ResenhaApp() {
         authMode === "signup"
           ? await supabase.auth.signUp({
               ...credentials,
-              options: { emailRedirectTo: `${window.location.origin}${import.meta.env.BASE_URL}` },
+              options: { emailRedirectTo: appBaseUrl },
             })
           : await supabase.auth.signInWithPassword(credentials);
       if (result.error) {
@@ -2114,7 +2115,7 @@ export default function ResenhaApp() {
     try {
       if (!navigator.onLine) throw new Error("offline");
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}${import.meta.env.BASE_URL}`,
+        redirectTo: appBaseUrl,
       });
       setAuthMessage(
         error

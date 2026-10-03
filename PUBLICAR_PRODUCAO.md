@@ -21,7 +21,7 @@ Essa combinação mantém o site estático barato, entrega HTTPS automático e p
 5. Cadastre as variáveis:
    - `VITE_SUPABASE_URL`;
    - `VITE_SUPABASE_PUBLISHABLE_KEY`.
-6. Não configure `VITE_BASE_PATH` na Cloudflare. Assim, o site será publicado na raiz do domínio.
+6. Não é necessário configurar `VITE_BASE_PATH`. O projeto usa caminhos relativos e funciona na raiz do domínio ou em uma subpasta.
 7. Faça o primeiro deploy e confira a URL temporária `pages.dev`.
 
 O arquivo `public/_headers` aplica cabeçalhos de segurança e cache na Cloudflare. O arquivo `public/_redirects` mantém o React funcionando ao abrir endereços diretamente.

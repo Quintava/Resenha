@@ -37,10 +37,14 @@ jobs:
       - name: Gerar o site
         run: npm run build
         env:
-          # Use a variável do repositório com valor / ao adotar domínio próprio no GitHub Pages.
-          VITE_BASE_PATH: ${{ vars.VITE_BASE_PATH || '/resenha/' }}
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+
+      - name: Validar os arquivos publicados
+        run: |
+          test -f dist/index.html
+          test -d dist/assets
+          grep -q './assets/' dist/index.html
 
       - name: Configurar o GitHub Pages
         uses: actions/configure-pages@v6
