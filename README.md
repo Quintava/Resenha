@@ -95,18 +95,19 @@ Para publicar com domínio próprio, HTTPS e cabeçalhos de produção, siga `PU
 
 ## Organização do código
 
-- `src/App.jsx`: ponto de entrada visual; apenas monta a página `<ResenhaApp />`;
-- `src/pages/ResenhaApp.jsx`: coordena estado, navegação e os fluxos autenticados;
-- `src/components/auth/`: login, cadastro e recuperação de senha;
-- `src/components/layout/`: menu, cabeçalho, perfil e rodapé;
-- `src/components/match/`: placar, times, jogadores e lances da partida;
-- `src/components/stats/`: classificação e tabelas de desempenho;
-- `src/components/common/`: peças reutilizáveis, como modal, avatar e paginação;
-- `src/config/`: valores iniciais, modalidades e constantes do aplicativo;
-- `src/domain/`: regras de avaliação, estado, esportes e montagem dos times;
-- `src/utils/`: funções genéricas de data, cronômetro e identificação;
-- `src/PublicPage.jsx`: Mural da Resenha, público e somente para leitura;
-- `src/dataService.js`: leitura, paginação e sincronização incremental com o Supabase;
+- `src/App.jsx`: ponto de entrada visual; apenas monta `<AplicativoResenha />`;
+- `src/paginas/AplicativoResenha.jsx`: coordena estado, navegação e fluxos autenticados;
+- `src/componentes/autenticacao/`: login, cadastro e recuperação de senha;
+- `src/componentes/estrutura/`: menu, cabeçalho, perfil e rodapé;
+- `src/componentes/partida/`: placar, times, jogadores e lances da partida;
+- `src/componentes/estatisticas/`: classificação e tabelas de desempenho;
+- `src/componentes/treinador/`: ficha do atleta e controle de mensalidades;
+- `src/componentes/comuns/`: modal, avatar, paginação e peças reutilizáveis;
+- `src/configuracao/`: valores iniciais, modalidades e constantes;
+- `src/dominio/`: avaliações, estado, esportes e montagem dos times;
+- `src/utilitarios/`: data, cronômetro, segurança e geração da ficha em PDF;
+- `src/PaginaPublica.jsx`: Mural da Resenha, público e somente para leitura;
+- `src/servicoDados.js`: leitura, paginação e sincronização incremental com o Supabase;
 - `src/supabase.js`: criação e configuração segura do cliente Supabase;
 - `src/styles.css`: temas, componentes visuais e responsividade;
 - `supabase/schema.sql`: tabelas, políticas de segurança e funções públicas do banco;

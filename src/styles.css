@@ -254,27 +254,11 @@ button {
   object-position: center bottom;
 }
 .mode-card-art.amateur-art img {
-  opacity: 0;
-  animation: mode-art-cycle 12s infinite;
+  opacity: 1;
 }
-.mode-card-art.amateur-art img:nth-child(2) {
-  animation-delay: 4s;
-}
-.mode-card-art.amateur-art img:nth-child(3) {
-  animation-delay: 8s;
-}
-@keyframes mode-art-cycle {
-  0%,
-  28% {
-    opacity: 1;
-  }
-  34%,
-  94% {
-    opacity: 0;
-  }
-  100% {
-    opacity: 1;
-  }
+.mode-card-art.amateur-art .mode-brand-logo {
+  padding: 5px;
+  object-position: center;
 }
 .group-context-actions {
   display: flex;
@@ -323,8 +307,10 @@ button {
 }
 .group-create-button {
   min-height: 36px;
+  min-width: 210px;
   padding: 0 11px;
   font-size: 0.78rem;
+  justify-content: center;
 }
 .mode-status {
   color: var(--muted);
@@ -585,6 +571,7 @@ button {
   }
   .group-create-button {
     width: 38px;
+    min-width: 38px;
     padding-inline: 0;
     justify-content: center;
   }
@@ -2959,6 +2946,10 @@ body,
   height: 100%;
   display: block;
   object-fit: cover;
+}
+.profile-avatar.brand-avatar img {
+  padding: 3px;
+  object-fit: contain;
 }
 .profile-dropdown {
   width: 260px;
@@ -6175,7 +6166,8 @@ button {
   background: var(--ink);
   color: var(--paper);
 }
-.ranking-scopes {
+.ranking-scopes,
+.ranking-role-switch {
   display: flex;
   width: fit-content;
   max-width: 100%;
@@ -6186,7 +6178,20 @@ button {
   border-radius: 12px;
   background: var(--paper);
 }
-.ranking-scopes button {
+.ranking-filter-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.ranking-filter-row .ranking-scopes,
+.ranking-filter-row .ranking-role-switch,
+.ranking-filter-row .public-ranking-scopes {
+  margin: 0;
+}
+.ranking-scopes button,
+.ranking-role-switch button {
   min-height: 38px;
   padding: 0 14px;
   border: 0;
@@ -6198,9 +6203,22 @@ button {
   font-weight: 800;
   cursor: pointer;
 }
-.ranking-scopes button.active {
+.ranking-scopes button.active,
+.ranking-role-switch button.active {
   background: var(--green);
   color: #fff;
+}
+
+.ranking-role-switch {
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  gap: 5px;
+  margin: -7px 0 14px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--paper);
 }
 .ranking-match-picker {
   display: grid;
@@ -6632,13 +6650,32 @@ tr.bottom-rank {
   }
 }
 @media (max-width: 600px) {
-  .ranking-scopes {
+  .ranking-scopes,
+  .ranking-role-switch {
     width: 100%;
   }
-  .ranking-scopes button {
+  .ranking-scopes button,
+  .ranking-role-switch button {
     flex: 1;
     padding-inline: 7px;
     font-size: 0.66rem;
+  }
+  .ranking-filter-row {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 3px;
+    scrollbar-width: thin;
+  }
+  .ranking-filter-row .ranking-scopes,
+  .ranking-filter-row .ranking-role-switch,
+  .ranking-filter-row .public-ranking-scopes {
+    width: max-content;
+    flex: 0 0 auto;
+  }
+  .ranking-filter-row .ranking-scopes button,
+  .ranking-filter-row .ranking-role-switch button,
+  .ranking-filter-row .public-ranking-scopes button {
+    flex: 0 0 auto;
   }
   .public-highlights {
     width: 100%;
@@ -7649,5 +7686,292 @@ summary:focus-visible {
   }
   .auth-stage .auth-copy p {
     font-size: 0.66rem;
+  }
+}
+
+/* Login responsivo: evita que o painel de acesso comprima a apresentação esportiva. */
+@media (max-width: 1100px) {
+  .auth-page:not(.setup-required-page) {
+    grid-template-columns: minmax(0, 1fr);
+    overflow-x: clip;
+    overflow-y: auto;
+  }
+
+  .auth-page:not(.setup-required-page) .auth-hero {
+    min-height: 400px;
+    padding: 82px clamp(24px, 6vw, 64px) 34px;
+  }
+
+  .auth-page:not(.setup-required-page) .auth-stage {
+    width: min(100%, 850px);
+    min-height: 280px;
+    grid-template-columns: minmax(230px, 0.9fr) minmax(300px, 1.1fr);
+    gap: clamp(24px, 5vw, 54px);
+    align-items: end;
+  }
+
+  .auth-page:not(.setup-required-page) .auth-sport-carousel {
+    width: min(100%, 390px);
+    max-width: none;
+  }
+
+  .auth-page:not(.setup-required-page) .auth-slide-frame {
+    height: clamp(250px, 32vw, 330px);
+  }
+
+  .auth-page:not(.setup-required-page) .auth-panel {
+    min-height: auto;
+    padding: 40px 20px max(64px, calc(40px + env(safe-area-inset-bottom)));
+  }
+}
+
+@media (max-width: 700px) {
+  .auth-page:not(.setup-required-page) .auth-hero {
+    min-height: 330px;
+    padding: calc(76px + env(safe-area-inset-top)) 18px 24px;
+  }
+
+  .auth-page:not(.setup-required-page) .auth-stage {
+    width: 100%;
+    min-height: 220px;
+    grid-template-columns: minmax(125px, 0.8fr) minmax(0, 1.2fr);
+    gap: clamp(12px, 4vw, 24px);
+  }
+
+  .auth-page:not(.setup-required-page) .auth-sport-carousel {
+    width: 100%;
+    max-width: 220px;
+  }
+
+  .auth-page:not(.setup-required-page) .auth-slide-frame {
+    height: clamp(180px, 42vw, 245px);
+  }
+
+  .auth-page:not(.setup-required-page) .auth-stage .auth-copy {
+    min-width: 0;
+    padding-bottom: 8px;
+  }
+
+  .auth-page:not(.setup-required-page) .auth-kicker {
+    max-width: 100%;
+    margin-bottom: 9px;
+    white-space: normal;
+    line-height: 1.25;
+  }
+
+  .auth-page:not(.setup-required-page) .auth-stage .auth-copy h1 {
+    margin-bottom: 10px;
+    font-size: clamp(1.65rem, 7.2vw, 2.45rem);
+    overflow-wrap: normal;
+  }
+
+  .auth-page:not(.setup-required-page) .auth-stage .auth-copy p {
+    display: block;
+    font-size: clamp(0.72rem, 2.7vw, 0.88rem);
+    line-height: 1.45;
+  }
+
+  .auth-page:not(.setup-required-page) .auth-panel {
+    padding: 22px 12px max(42px, calc(26px + env(safe-area-inset-bottom)));
+  }
+
+  .auth-page:not(.setup-required-page) .auth-card {
+    width: min(100%, 430px);
+  }
+}
+
+@media (max-width: 420px) {
+  .auth-page:not(.setup-required-page) .auth-hero {
+    min-height: 305px;
+    padding-inline: 14px;
+  }
+
+  .auth-page:not(.setup-required-page) .auth-stage {
+    min-height: 205px;
+    grid-template-columns: minmax(112px, 0.76fr) minmax(0, 1.24fr);
+    gap: 10px;
+  }
+
+  .auth-page:not(.setup-required-page) .auth-slide-frame {
+    height: clamp(165px, 45vw, 195px);
+  }
+
+  .auth-page:not(.setup-required-page) .auth-stage .auth-copy h1 {
+    font-size: clamp(1.45rem, 7.4vw, 1.9rem);
+  }
+
+  .auth-page:not(.setup-required-page) .auth-stage .auth-copy p {
+    font-size: 0.7rem;
+  }
+}
+
+@media (max-width: 350px) {
+  .auth-page:not(.setup-required-page) .auth-stage {
+    grid-template-columns: 102px minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .auth-page:not(.setup-required-page) .auth-slide-frame {
+    height: 155px;
+  }
+
+  .auth-page:not(.setup-required-page) .auth-kicker {
+    font-size: 0.48rem;
+  }
+}
+
+/* A arte acompanha a altura do texto; em telas estreitas, passa para cima da chamada. */
+.auth-stage {
+  align-items: stretch;
+}
+
+.auth-sport-carousel {
+  height: 100%;
+  display: grid;
+  align-items: end;
+}
+
+.auth-slide-frame {
+  height: 100%;
+  min-height: 270px;
+}
+
+.auth-stage .auth-copy {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.footer-developer img,
+.notification-emblem,
+.notification-modal-emblem,
+.brand-mark > img {
+  object-fit: contain;
+}
+
+.brand-mark,
+.auth-brand .mascot-brand-mark {
+  border-color: rgba(9, 95, 69, 0.28);
+  background: #f4fbf8;
+  box-shadow: 0 7px 18px rgba(3, 71, 53, 0.12);
+}
+
+:root[data-theme="dark"] .brand-mark,
+:root[data-theme="dark"] .auth-brand .mascot-brand-mark {
+  border-color: rgba(189, 139, 34, 0.45);
+  background: radial-gradient(circle at 35% 30%, #fffdf6 0%, #f5e4b8 72%, #dfbd67 100%);
+  box-shadow: 0 7px 18px rgba(59, 39, 5, 0.18);
+}
+
+.brand-mark > img {
+  padding: 3px;
+}
+
+.notification-emblem,
+.notification-modal-emblem,
+.footer-developer img,
+.profile-avatar.brand-avatar,
+.mode-card-art.amateur-art {
+  padding: 3px;
+  border: 1px solid rgba(9, 95, 69, 0.28);
+  border-radius: 10px;
+  background: #f4fbf8;
+}
+
+:root[data-theme="dark"] .notification-emblem,
+:root[data-theme="dark"] .notification-modal-emblem,
+:root[data-theme="dark"] .footer-developer img,
+:root[data-theme="dark"] .profile-avatar.brand-avatar,
+:root[data-theme="dark"] .mode-card-art.amateur-art {
+  border-color: rgba(189, 139, 34, 0.38);
+  background: #f7e9c4;
+}
+
+.public-result-selector {
+  display: grid;
+  gap: 14px;
+}
+
+@media (max-width: 1100px) and (min-width: 521px) {
+  .auth-page:not(.setup-required-page) .auth-stage {
+    align-items: stretch;
+  }
+
+  .auth-page:not(.setup-required-page) .auth-slide-frame {
+    height: 100%;
+    min-height: 260px;
+  }
+}
+
+@media (max-width: 520px) {
+  .auth-page:not(.setup-required-page) .auth-hero {
+    min-height: auto;
+    padding: calc(76px + env(safe-area-inset-top)) 18px 30px;
+  }
+
+  .auth-page:not(.setup-required-page) .auth-stage {
+    width: min(100%, 390px);
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto;
+    justify-items: center;
+    gap: 18px;
+  }
+
+  .auth-page:not(.setup-required-page) .auth-sport-carousel {
+    width: min(78vw, 300px);
+    height: auto;
+  }
+
+  .auth-page:not(.setup-required-page) .auth-slide-frame {
+    width: 100%;
+    height: clamp(190px, 55vw, 250px);
+    min-height: 0;
+  }
+
+  .auth-page:not(.setup-required-page) .auth-stage .auth-mascot {
+    width: min(72vw, 280px);
+    max-width: none;
+    max-height: 270px;
+  }
+
+  .auth-page:not(.setup-required-page) .auth-stage .auth-copy {
+    width: min(100%, 360px);
+    height: auto;
+    align-items: center;
+    padding: 0;
+    text-align: center;
+  }
+
+  .auth-page:not(.setup-required-page) .auth-kicker {
+    justify-content: center;
+  }
+
+  .auth-page:not(.setup-required-page) .auth-stage .auth-copy h1,
+  .auth-page:not(.setup-required-page) .auth-stage .auth-copy p {
+    max-width: 100%;
+  }
+
+  .auth-page:not(.setup-required-page) .auth-stage .auth-copy h1 {
+    font-size: clamp(1.9rem, 9vw, 2.55rem);
+  }
+
+  .auth-page:not(.setup-required-page) .auth-stage .auth-copy p {
+    font-size: 0.82rem;
+  }
+}
+
+@media (max-width: 360px) {
+  .auth-page:not(.setup-required-page) .auth-sport-carousel {
+    width: min(82vw, 265px);
+  }
+
+  .auth-page:not(.setup-required-page) .auth-slide-frame {
+    height: 185px;
+  }
+
+  .auth-page:not(.setup-required-page) .auth-stage .auth-copy h1 {
+    font-size: 1.82rem;
   }
 }

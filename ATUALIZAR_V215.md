@@ -26,7 +26,7 @@
 
 ## Atualização
 
-Preserve o arquivo `.env` e os *secrets* configurados no GitHub. Depois execute:
+Preserve o arquivo `.env` e os _secrets_ configurados no GitHub. Depois execute:
 
 ```bash
 npm install

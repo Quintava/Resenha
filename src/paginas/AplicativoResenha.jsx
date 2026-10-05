@@ -48,38 +48,46 @@ import {
   X,
 } from "lucide-react";
 import { supabase, supabaseConfigured } from "../supabase";
-import { downloadBlankStudentForm, downloadStudentForm } from "../utils/studentPdf";
+import { downloadStudentForm, shareBlankStudentForm } from "../utilitarios/fichaAtletaPdf";
 import {
   canonicalSport,
   scoreAction,
   scoreWord,
   sportKind,
   starsFromScore,
-} from "../domain/sports";
+} from "../dominio/esportes";
 import {
-  AuthScreen,
-  AuthSetupRequired,
-  PasswordRecoveryScreen,
-} from "../components/auth/AuthScreens";
+  TelaAutenticacao,
+  TelaConfiguracaoAutenticacao,
+  TelaRecuperacaoSenha,
+} from "../componentes/autenticacao/TelasAutenticacao";
 import {
   Avatar,
-  Empty,
+  EstadoVazio,
   Modal,
-  Mode,
-  Pagination,
-  ProfileAvatar,
-  Stars,
-  ThemeToggle,
-} from "../components/common/Common";
-import { PerformanceTable, RankingPanel, Summary } from "../components/stats/RankingComponents";
+  Modo,
+  Paginacao,
+  AvatarPerfil,
+  Estrelas,
+  AlternadorTema,
+} from "../componentes/comuns/ComponentesComuns";
 import {
-  MatchEventRow,
-  MatchScorers,
-  TeamCard,
-  TeamScore,
-} from "../components/match/MatchComponents";
-import { GroupBar, SiteFooter, Topbar } from "../components/layout/AppLayout";
-import { TuitionControl } from "../components/academy/TuitionControl";
+  TabelaDesempenho,
+  PainelRanking,
+  Resumo,
+} from "../componentes/estatisticas/ComponentesRanking";
+import {
+  LinhaEventoPartida,
+  PontuadoresPartida,
+  CartaoTime,
+  PlacarTime,
+} from "../componentes/partida/ComponentesPartida";
+import {
+  BarraGrupos,
+  RodapeSite,
+  BarraSuperior,
+} from "../componentes/estrutura/EstruturaAplicativo";
+import { ControleMensalidades } from "../componentes/treinador/ControleMensalidades";
 import {
   initialState,
   ACTIVE_GROUP_PREFIX,
@@ -91,7 +99,7 @@ import {
   TEAM_META,
   THEME_KEY,
   TRAINING_DAYS,
-} from "../config/appConfig";
+} from "../configuracao/configuracaoAplicativo";
 import {
   exerciseSeconds,
   exerciseTargetLabel,
@@ -101,14 +109,14 @@ import {
   monthKey,
   thisMonth,
   uid,
-} from "../utils/time";
+} from "../utilitarios/tempo";
 import {
   PASSWORD_MIN_LENGTH,
   friendlyAuthError,
   normalizeEmail,
   passwordIssue,
   safeLocalStorageSet,
-} from "../utils/security";
+} from "../utilitarios/seguranca";
 import {
   applyMatchToCareers,
   buildPlayerStats,
@@ -118,13 +126,13 @@ import {
   playerWasInMatch,
   pointsInMatch,
   rebuildPlayerCareers,
-} from "../domain/playerStats";
+} from "../dominio/estatisticasJogador";
 import {
   buildManualTeams,
   drawTeams,
   prepareGoalkeepers,
   substitutionBench,
-} from "../domain/teamBuilder";
+} from "../dominio/montagemTimes";
 import {
   hasSavedContent,
   legacyUserStorageKey,
@@ -133,7 +141,7 @@ import {
   removePlayerFromMatch,
   renamePlayerInMatch,
   userStorageKey,
-} from "../domain/appState";
+} from "../dominio/estadoAplicativo";
 import {
   addUpcomingGame,
   changeGroupMode,
@@ -149,9 +157,9 @@ import {
   renameGroup,
   saveWorkspace,
   setPublicEnabled,
-} from "../dataService";
+} from "../servicoDados";
 
-const PublicPage = lazy(() => import("../PublicPage"));
+const PaginaPublica = lazy(() => import("../PaginaPublica"));
 const brandIconSrc = `${import.meta.env.BASE_URL}assets/logo-resenha.webp`;
 const appBaseUrl = new URL(import.meta.env.BASE_URL, window.location.href).href;
 
@@ -184,7 +192,7 @@ const maskPhone = (value) => {
   return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
 };
 
-export default function ResenhaApp() {
+export default function AplicativoResenha() {
   // Estado principal da conta e navegação.
   const [data, setData] = useState(initialState);
   const [ready, setReady] = useState(false);
@@ -211,6 +219,7 @@ export default function ResenhaApp() {
   const [goalTeam, setGoalTeam] = useState(null);
   const [goalScorer, setGoalScorer] = useState("");
   const [goalAssist, setGoalAssist] = useState("");
+  const [basketPoints, setBasketPoints] = useState(1);
   const [incident, setIncident] = useState(null);
   const [incidentPlayer, setIncidentPlayer] = useState("");
   const [subTeam, setSubTeam] = useState(null);
@@ -226,7 +235,10 @@ export default function ResenhaApp() {
   const [statsSport, setStatsSport] = useState("Futebol de Salão");
   const [statsSection, setStatsSection] = useState("ranking");
   const [rankingScope, setRankingScope] = useState("overall");
+  const [rankingRole, setRankingRole] = useState("line");
   const [rankingMatchId, setRankingMatchId] = useState("");
+  const [blankFormShareOpen, setBlankFormShareOpen] = useState(false);
+  const [blankFormEmail, setBlankFormEmail] = useState("");
   const [theme, setTheme] = useState(
     () =>
       localStorage.getItem(THEME_KEY) ||
@@ -911,7 +923,15 @@ export default function ResenhaApp() {
       primaryPosition: profile.primaryPosition || "",
       secondaryPosition: profile.secondaryPosition || "",
       dominantFoot: profile.dominantFoot || "",
-      height: profile.height || "",
+      email: profile.email || "",
+      // Perfis antigos guardavam a altura em centímetros (ex.: 175).
+      // A interface atual sempre apresenta o valor em metros (ex.: 1,75).
+      height: (() => {
+        const storedHeight = Number(String(profile.height || "").replace(",", "."));
+        if (!Number.isFinite(storedHeight) || storedHeight <= 0) return "";
+        const heightInMeters = storedHeight > 3 ? storedHeight / 100 : storedHeight;
+        return heightInMeters.toFixed(2).replace(".", ",");
+      })(),
       weight: profile.weight || "",
       experience: profile.experience || "",
       medicalRestrictions: profile.medicalRestrictions || "",
@@ -948,6 +968,7 @@ export default function ResenhaApp() {
       primaryPosition: "",
       secondaryPosition: "",
       dominantFoot: "",
+      email: "",
       height: "",
       weight: "",
       experience: "",
@@ -1062,8 +1083,29 @@ export default function ResenhaApp() {
   const savePlayerDetails = (event) => {
     event.preventDefault();
     if (!playerDetails) return;
-    const { playerId, name, paymentDraft: _paymentDraft, ...academyProfile } = playerDetails;
+    const { playerId, name, paymentDraft: _paymentDraft, ...profileDraft } = playerDetails;
     const safeName = name.trim().slice(0, 60);
+    const normalizedEmail = String(profileDraft.email || "")
+      .trim()
+      .toLowerCase()
+      .slice(0, 254);
+    const rawHeight = String(profileDraft.height || "")
+      .trim()
+      .replace(".", ",");
+    const heightNumber = Number(rawHeight.replace(",", "."));
+    if (normalizedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      setSettingsMessage("Informe um e-mail válido para o atleta ou responsável.");
+      return;
+    }
+    if (rawHeight && (!Number.isFinite(heightNumber) || heightNumber < 0.5 || heightNumber > 2.5)) {
+      setSettingsMessage("Informe a altura em metros, por exemplo: 1,75.");
+      return;
+    }
+    const academyProfile = {
+      ...profileDraft,
+      email: normalizedEmail,
+      height: rawHeight ? heightNumber.toFixed(2).replace(".", ",") : "",
+    };
     const original = data.players.find((player) => player.id === playerId);
     if (!safeName) return;
     if (
@@ -1191,7 +1233,7 @@ export default function ResenhaApp() {
   }, [data.settings, manualAssignments, playerStats, presentPlayers, workspaceMode]);
 
   // Cada pontuação vira um evento individual, inclusive para a sincronização incremental.
-  const registerGoal = useCallback((teamIndex, playerId, assistPlayerId = "") => {
+  const registerGoal = useCallback((teamIndex, playerId, assistPlayerId = "", pointValue = 1) => {
     let result = { ok: false, error: "Jogador não encontrado." };
     setData((current) => {
       const match = current.activeMatch;
@@ -1201,7 +1243,9 @@ export default function ResenhaApp() {
       );
       if (!match || !player) return current;
       const score = [...match.score];
-      score[teamIndex] += 1;
+      const scoreValue =
+        sportKind(match.sport) === "basketball" && Number(pointValue) === 3 ? 3 : 1;
+      score[teamIndex] += scoreValue;
       const event = {
         id: uid(),
         type: "goal",
@@ -1210,6 +1254,10 @@ export default function ResenhaApp() {
         playerName: player.name,
         assistPlayerId: assistPlayer?.id || null,
         assistPlayerName: assistPlayer?.name || null,
+        assistWasGoalkeeper: Boolean(
+          assistPlayer?.id && assistPlayer.id === match.teams[teamIndex].goalkeeperId,
+        ),
+        pointValue: scoreValue,
         minute: minuteOf(match),
         elapsedSeconds: match.durationSeconds - match.remainingSeconds,
         goalkeeperId: match.teams[teamIndex === 0 ? 1 : 0]?.goalkeeperId || null,
@@ -1220,6 +1268,7 @@ export default function ResenhaApp() {
     setGoalTeam(null);
     setGoalScorer("");
     setGoalAssist("");
+    setBasketPoints(1);
     return result;
   }, []);
 
@@ -1636,7 +1685,11 @@ export default function ResenhaApp() {
       const event = match?.events.find((item) => item.id === eventId);
       if (!match || !event) return current;
       const score = [...match.score];
-      if (event.type === "goal") score[event.teamIndex] = Math.max(0, score[event.teamIndex] - 1);
+      if (event.type === "goal")
+        score[event.teamIndex] = Math.max(
+          0,
+          score[event.teamIndex] - Number(event.pointValue || 1),
+        );
       if (event.type === "own_goal") {
         const benefitedTeam = event.teamIndex === 0 ? 1 : 0;
         score[benefitedTeam] = Math.max(0, score[benefitedTeam] - 1);
@@ -1919,6 +1972,8 @@ export default function ResenhaApp() {
           goals: 0,
           assists: 0,
           saves: 0,
+          goalkeeperAppearances: 0,
+          goalkeeperEvaluationTotal: 0,
           games: 0,
           evaluationTotal: 0,
         };
@@ -1927,6 +1982,10 @@ export default function ResenhaApp() {
         item.goals += performance.points;
         item.assists += performance.assists;
         item.saves += performance.goalkeeper.saves;
+        if (performance.goalkeeper.seconds > 0) {
+          item.goalkeeperAppearances += 1;
+          item.goalkeeperEvaluationTotal += performance.goalkeeper.score;
+        }
         item.evaluationTotal += performance.score;
         players.set(player.id, item);
       });
@@ -1941,7 +2000,12 @@ export default function ResenhaApp() {
           ...player,
           total:
             sportKind(statsSport) === "football" ? player.goals + player.assists : player.goals,
-          saveAverage: player.games ? player.saves / player.games : 0,
+          saveAverage: player.goalkeeperAppearances
+            ? player.saves / player.goalkeeperAppearances
+            : 0,
+          goalkeeperEvaluation: player.goalkeeperAppearances
+            ? Number((player.goalkeeperEvaluationTotal / player.goalkeeperAppearances).toFixed(1))
+            : 0,
           evaluation,
           stars: starsFromScore(evaluation, player.games),
         };
@@ -1970,7 +2034,11 @@ export default function ResenhaApp() {
           goals: career.points,
           assists: career.assists,
           saves: career.goalkeeperSaves,
-          saveAverage: career.goalkeeperSaves / career.games,
+          goalkeeperAppearances: career.goalkeeperAppearances || 0,
+          goalkeeperEvaluation: Number((career.goalkeeperEvaluationAverage || 0).toFixed(1)),
+          saveAverage: career.goalkeeperAppearances
+            ? career.goalkeeperSaves / career.goalkeeperAppearances
+            : 0,
           games: career.games,
           total:
             sportKind(statsSport) === "football" ? career.points + career.assists : career.points,
@@ -2010,6 +2078,8 @@ export default function ResenhaApp() {
           goals: performance.points,
           assists: performance.assists,
           saves: performance.goalkeeper.saves,
+          goalkeeperAppearances: performance.goalkeeper.seconds > 0 ? 1 : 0,
+          goalkeeperEvaluation: performance.goalkeeper.score,
           saveAverage: performance.goalkeeper.saves,
           games: 1,
           total:
@@ -2034,6 +2104,18 @@ export default function ResenhaApp() {
       : rankingScope === "month"
         ? monthlyRanking
         : overallRanking;
+  const displayedGoalkeeperRanking = [...displayedRanking]
+    .filter((player) => player.goalkeeperAppearances > 0)
+    .sort(
+      (a, b) =>
+        b.goalkeeperEvaluation - a.goalkeeperEvaluation ||
+        b.saves - a.saves ||
+        a.name.localeCompare(b.name),
+    );
+  const displayedRoleRanking =
+    sportKind(statsSport) === "football" && rankingRole === "goalkeeper"
+      ? displayedGoalkeeperRanking
+      : displayedRanking;
   const goalsRanking = useMemo(
     () =>
       [...rankingData]
@@ -2650,17 +2732,18 @@ export default function ResenhaApp() {
   const publicSlug = new URLSearchParams(window.location.search).get("publico");
 
   // Portas de entrada da aplicação: configuração, mural, login e recuperação.
-  if (!supabaseConfigured) return <AuthSetupRequired theme={theme} setTheme={setTheme} />;
+  if (!supabaseConfigured)
+    return <TelaConfiguracaoAutenticacao theme={theme} setTheme={setTheme} />;
   if (publicSlug)
     return (
       <Suspense fallback={<main className="app-shell loading">Carregando página pública…</main>}>
-        <PublicPage slug={publicSlug} />
+        <PaginaPublica slug={publicSlug} />
       </Suspense>
     );
   if (!authReady) return <main className="app-shell loading">Verificando acesso…</main>;
   if (passwordRecovery)
     return (
-      <PasswordRecoveryScreen
+      <TelaRecuperacaoSenha
         password={recoveryPassword}
         setPassword={setRecoveryPassword}
         confirm={recoveryConfirm}
@@ -2679,7 +2762,7 @@ export default function ResenhaApp() {
     );
   if (!session)
     return (
-      <AuthScreen
+      <TelaAutenticacao
         mode={authMode}
         setMode={setAuthMode}
         email={authEmail}
@@ -2731,8 +2814,8 @@ export default function ResenhaApp() {
       </main>
     );
   const currentRankingKind = sportKind(statsSport);
-  const primaryRanking = displayedRanking;
-  const displayedScores = displayedRanking.reduce((sum, player) => sum + player.goals, 0);
+  const primaryRanking = displayedRoleRanking;
+  const displayedScores = displayedRoleRanking.reduce((sum, player) => sum + player.goals, 0);
   const displayedGames =
     rankingScope === "match"
       ? selectedRankingMatch
@@ -2768,7 +2851,7 @@ export default function ResenhaApp() {
   // Interface autenticada principal.
   return (
     <main className="app-shell">
-      <Topbar
+      <BarraSuperior
         view={view}
         hasMatch={Boolean(match)}
         onNavigate={(nextView) => {
@@ -2813,7 +2896,7 @@ export default function ResenhaApp() {
       />
 
       {view !== "settings" && (
-        <GroupBar
+        <BarraGrupos
           groups={visibleGroups}
           activeGroupId={activeGroupId}
           onChange={switchGroup}
@@ -2851,9 +2934,12 @@ export default function ResenhaApp() {
                   <button
                     className="button secondary academy-blank-form-button"
                     type="button"
-                    onClick={downloadBlankStudentForm}
+                    onClick={() => {
+                      setBlankFormEmail("");
+                      setBlankFormShareOpen(true);
+                    }}
                   >
-                    <Download size={18} /> Ficha cadastro
+                    <Mail size={18} /> Enviar ficha cadastro
                   </button>
                 </div>
               ) : (
@@ -2902,7 +2988,7 @@ export default function ResenhaApp() {
               </div>
               <div className="player-list">
                 {activePlayers.length === 0 ? (
-                  <Empty
+                  <EstadoVazio
                     icon={<Users size={28} />}
                     title="A lista ainda está vazia"
                     text="Adicione os amigos que vão participar do jogo."
@@ -2930,7 +3016,7 @@ export default function ResenhaApp() {
                           </span>
                         </div>
                         <div className="player-rating">
-                          <Stars
+                          <Estrelas
                             rating={stats.rating}
                             label={`Nível geral: ${stats.rating} de 5`}
                           />
@@ -2972,11 +3058,7 @@ export default function ResenhaApp() {
                 )}
               </div>
               {activePlayers.length > PLAYER_PAGE_SIZE && (
-                <Pagination
-                  page={playerPage}
-                  pageCount={playerPageCount}
-                  onChange={setPlayerPage}
-                />
+                <Paginacao page={playerPage} pageCount={playerPageCount} onChange={setPlayerPage} />
               )}
             </div>
             <aside className="config-card">
@@ -3052,21 +3134,21 @@ export default function ResenhaApp() {
               </div>
               <fieldset className="mode-group">
                 <legend>Divisão dos times</legend>
-                <Mode
+                <Modo
                   active={data.settings.drawMode === "balanced"}
                   onClick={() => updateSettings("drawMode", "balanced")}
                   icon={<Shield size={19} />}
                   title="Equilibrado"
                   text="Usa o desempenho geral"
                 />
-                <Mode
+                <Modo
                   active={data.settings.drawMode === "random"}
                   onClick={() => updateSettings("drawMode", "random")}
                   icon={<Sparkles size={19} />}
                   title="Aleatório"
                   text="Sem considerar nível"
                 />
-                <Mode
+                <Modo
                   active={data.settings.drawMode === "manual"}
                   onClick={() => updateSettings("drawMode", "manual")}
                   icon={<Users size={19} />}
@@ -3235,7 +3317,7 @@ export default function ResenhaApp() {
             </div>
             <section className="match-score-hero" aria-label="Placar da partida">
               <div className="scoreboard">
-                <TeamScore team={match.teams[0]} score={match.score[0]} />
+                <PlacarTime team={match.teams[0]} score={match.score[0]} />
                 <div className="timer-panel">
                   <span className={match.running ? "live-label" : "live-label paused"}>
                     {match.running
@@ -3261,9 +3343,9 @@ export default function ResenhaApp() {
                     </button>
                   </div>
                 </div>
-                <TeamScore team={match.teams[1]} score={match.score[1]} />
+                <PlacarTime team={match.teams[1]} score={match.score[1]} />
               </div>
-              <MatchScorers match={match} />
+              <PontuadoresPartida match={match} />
             </section>
             {(match.reserveTeams || []).length > 0 && (
               <section className="reserve-teams">
@@ -3335,7 +3417,7 @@ export default function ResenhaApp() {
             )}
             <div className="match-grid">
               {match.teams.map((team, teamIndex) => (
-                <TeamCard
+                <CartaoTime
                   key={team.name}
                   team={team}
                   scoreLabel={scoreAction(match.sport)}
@@ -3343,6 +3425,7 @@ export default function ResenhaApp() {
                     setGoalTeam(teamIndex);
                     setGoalScorer(playerId);
                     setGoalAssist("");
+                    setBasketPoints(1);
                   }}
                   onOwnGoal={(playerId) => {
                     setIncident({ type: "own_goal", teamIndex });
@@ -3374,7 +3457,7 @@ export default function ResenhaApp() {
                     </div>
                   ) : (
                     match.events.map((event) => (
-                      <MatchEventRow
+                      <LinhaEventoPartida
                         event={event}
                         match={match}
                         onUndo={() => undoMatchEvent(event.id)}
@@ -3440,7 +3523,7 @@ export default function ResenhaApp() {
                 onClick={() => setStatsSection("scorers")}
               >
                 <Goal size={18} />{" "}
-                {currentRankingKind === "football" ? "Gols e assistências" : "Pontuadores"}
+                {currentRankingKind === "football" ? "Gols, assistências e defesas" : "Pontuadores"}
               </button>
               <button
                 className={statsSection === "results" ? "active" : ""}
@@ -3451,26 +3534,44 @@ export default function ResenhaApp() {
             </nav>
             {statsSection === "ranking" && (
               <>
-                <nav className="ranking-scopes" aria-label="Período da classificação">
-                  <button
-                    className={rankingScope === "overall" ? "active" : ""}
-                    onClick={() => setRankingScope("overall")}
-                  >
-                    Carreira
-                  </button>
-                  <button
-                    className={rankingScope === "month" ? "active" : ""}
-                    onClick={() => setRankingScope("month")}
-                  >
-                    Média mensal
-                  </button>
-                  <button
-                    className={rankingScope === "match" ? "active" : ""}
-                    onClick={() => setRankingScope("match")}
-                  >
-                    Por partida
-                  </button>
-                </nav>
+                <div className="ranking-filter-row">
+                  <nav className="ranking-scopes" aria-label="Período da classificação">
+                    <button
+                      className={rankingScope === "overall" ? "active" : ""}
+                      onClick={() => setRankingScope("overall")}
+                    >
+                      Carreira
+                    </button>
+                    <button
+                      className={rankingScope === "month" ? "active" : ""}
+                      onClick={() => setRankingScope("month")}
+                    >
+                      Média mensal
+                    </button>
+                    <button
+                      className={rankingScope === "match" ? "active" : ""}
+                      onClick={() => setRankingScope("match")}
+                    >
+                      Por partida
+                    </button>
+                  </nav>
+                  {currentRankingKind === "football" && (
+                    <nav className="ranking-role-switch" aria-label="Função dos atletas">
+                      <button
+                        className={rankingRole === "line" ? "active" : ""}
+                        onClick={() => setRankingRole("line")}
+                      >
+                        Jogadores de linha
+                      </button>
+                      <button
+                        className={rankingRole === "goalkeeper" ? "active" : ""}
+                        onClick={() => setRankingRole("goalkeeper")}
+                      >
+                        Goleiros
+                      </button>
+                    </nav>
+                  )}
+                </div>
                 {rankingScope === "match" && (
                   <label className="ranking-match-picker">
                     <span>Partida analisada</span>
@@ -3489,7 +3590,7 @@ export default function ResenhaApp() {
                   </label>
                 )}
                 <div className="summary-strip">
-                  <Summary
+                  <Resumo
                     icon={<Trophy size={20} />}
                     label={
                       rankingScope === "match"
@@ -3500,12 +3601,20 @@ export default function ResenhaApp() {
                     }
                     value={primaryRanking[0]?.name || "—"}
                   />
-                  <Summary
+                  <Resumo
                     icon={<Goal size={20} />}
-                    label={`${scoreAction(statsSport)}s na seleção`}
-                    value={displayedScores}
+                    label={
+                      currentRankingKind === "football" && rankingRole === "goalkeeper"
+                        ? "Defesas na seleção"
+                        : `${scoreAction(statsSport)}s na seleção`
+                    }
+                    value={
+                      currentRankingKind === "football" && rankingRole === "goalkeeper"
+                        ? primaryRanking[0]?.saves || 0
+                        : displayedScores
+                    }
                   />
-                  <Summary
+                  <Resumo
                     icon={<CalendarDays size={20} />}
                     label="Partidas consideradas"
                     value={displayedGames}
@@ -3535,8 +3644,8 @@ export default function ResenhaApp() {
                     limitado a +2,0
                     {currentRankingKind === "football" && "; ações de goleiro têm pesos próprios"}.
                   </p>
-                  <PerformanceTable
-                    ranking={displayedRanking.map((player) => {
+                  <TabelaDesempenho
+                    ranking={displayedRoleRanking.map((player) => {
                       const profile = data.players.find(
                         (item) => item.id === player.id,
                       )?.academyProfile;
@@ -3548,6 +3657,7 @@ export default function ResenhaApp() {
                     })}
                     sport={statsSport}
                     academy={workspaceMode === "academy"}
+                    viewMode={currentRankingKind === "football" ? rankingRole : "line"}
                   />
                 </article>
               </>
@@ -3558,7 +3668,7 @@ export default function ResenhaApp() {
               >
                 {currentRankingKind === "football" ? (
                   <>
-                    <RankingPanel
+                    <PainelRanking
                       title="Participações"
                       eyebrow="GOLS + ASSISTÊNCIAS"
                       ranking={[...rankingData].sort(
@@ -3567,23 +3677,32 @@ export default function ResenhaApp() {
                       valueKey="total"
                       valueLabel="participações"
                     />
-                    <RankingPanel
+                    <PainelRanking
                       title="Assistências"
                       eyebrow="GARÇONS DO MÊS"
                       ranking={assistsRanking}
                       valueKey="assists"
                       valueLabel="assistências"
                     />
-                    <RankingPanel
+                    <PainelRanking
                       title="Gols"
                       eyebrow="ARTILHARIA"
                       ranking={goalsRanking}
                       valueKey="goals"
                       valueLabel="gols"
                     />
+                    <PainelRanking
+                      title="Defesas"
+                      eyebrow="PAREDÕES DO MÊS"
+                      ranking={[...rankingData]
+                        .filter((player) => player.saves > 0)
+                        .sort((a, b) => b.saves - a.saves || a.name.localeCompare(b.name))}
+                      valueKey="saves"
+                      valueLabel="defesas"
+                    />
                   </>
                 ) : (
-                  <RankingPanel
+                  <PainelRanking
                     title={
                       currentRankingKind === "basketball"
                         ? "Cestinhas do mês"
@@ -3614,7 +3733,7 @@ export default function ResenhaApp() {
                   </div>
                 </header>
                 {monthMatches.length === 0 ? (
-                  <Empty
+                  <EstadoVazio
                     icon={<CalendarDays size={28} />}
                     title="Nenhum jogo nesta seleção"
                     text="Altere o mês ou carregue partidas anteriores."
@@ -3679,7 +3798,7 @@ export default function ResenhaApp() {
                 </p>
               </div>
               <div className="evolution-selector-card">
-                <ProfileAvatar name={evolutionPlayer?.name || "Atleta"} large />
+                <AvatarPerfil name={evolutionPlayer?.name || "Atleta"} large />
                 <label>
                   <span>
                     <UserRound size={15} /> Atleta
@@ -3714,7 +3833,7 @@ export default function ResenhaApp() {
             </div>
             {!evolutionPlayer ? (
               <article className="settings-card">
-                <Empty
+                <EstadoVazio
                   icon={<TrendingUp size={30} />}
                   title="Nenhum jogador disponível"
                   text="Cadastre jogadores e encerre partidas para acompanhar a evolução."
@@ -3723,18 +3842,18 @@ export default function ResenhaApp() {
             ) : (
               <>
                 <div className="summary-strip evolution-summary">
-                  <Summary
+                  <Resumo
                     icon={<CalendarDays size={20} />}
                     label="Presenças no mês"
                     value={evolutionGames.length}
                   />
-                  <Summary icon={<Goal size={20} />} label="Pontuações" value={evolutionPoints} />
-                  <Summary
+                  <Resumo icon={<Goal size={20} />} label="Pontuações" value={evolutionPoints} />
+                  <Resumo
                     icon={<Sparkles size={20} />}
                     label="Assistências"
                     value={evolutionAssists}
                   />
-                  <Summary
+                  <Resumo
                     icon={<TrendingUp size={20} />}
                     label="Média por partida"
                     value={evolutionAverage.toFixed(1)}
@@ -3742,11 +3861,11 @@ export default function ResenhaApp() {
                 </div>
                 <div className="evolution-grid">
                   <article className="evolution-profile-card">
-                    <ProfileAvatar name={evolutionPlayer.name} large />
+                    <AvatarPerfil name={evolutionPlayer.name} large />
                     <div>
                       <span className="eyebrow">NÍVEL GERAL</span>
                       <h2>{evolutionPlayer.name}</h2>
-                      <Stars
+                      <Estrelas
                         rating={playerStats.get(evolutionPlayer.id)?.rating || 1}
                         label="Nível geral do jogador"
                       />
@@ -3764,7 +3883,7 @@ export default function ResenhaApp() {
                       </div>
                     </header>
                     {evolutionGames.length === 0 ? (
-                      <Empty
+                      <EstadoVazio
                         icon={<BarChart3 size={28} />}
                         title="Sem partidas neste mês"
                         text="As presenças e o desempenho aparecerão depois de uma partida salva."
@@ -3799,7 +3918,10 @@ export default function ResenhaApp() {
                                 </span>
                               )}
                             </div>
-                            <Stars rating={rating} label={`Nível da partida: ${rating} estrelas`} />
+                            <Estrelas
+                              rating={rating}
+                              label={`Nível da partida: ${rating} estrelas`}
+                            />
                           </div>
                         ))}
                       </div>
@@ -4072,7 +4194,7 @@ export default function ResenhaApp() {
                       <b>{(data.trainingPlans || []).length}</b>
                     </header>
                     {(data.trainingPlans || []).length === 0 ? (
-                      <Empty
+                      <EstadoVazio
                         icon={<Dumbbell size={28} />}
                         title="Nenhum treino criado"
                         text="Monte sua primeira rotina ao lado."
@@ -4162,22 +4284,22 @@ export default function ResenhaApp() {
               </label>
             </div>
             <div className="summary-strip evolution-summary">
-              <Summary
+              <Resumo
                 icon={<Dumbbell size={20} />}
                 label="Treinos realizados"
                 value={trainingMonthSessions.length}
               />
-              <Summary
+              <Resumo
                 icon={<Check size={20} />}
                 label="Exercícios concluídos"
                 value={trainingCompletedExercises.length}
               />
-              <Summary
+              <Resumo
                 icon={<Clock3 size={20} />}
                 label="Tempo planejado"
                 value={formatTrainingDuration(trainingTimeSeconds)}
               />
-              <Summary
+              <Resumo
                 icon={<Activity size={20} />}
                 label="Repetições"
                 value={trainingRepetitions}
@@ -4195,7 +4317,7 @@ export default function ResenhaApp() {
                   </div>
                 </header>
                 {trainingPlanRanking.length === 0 ? (
-                  <Empty
+                  <EstadoVazio
                     icon={<BarChart3 size={28} />}
                     title="Sem treinos neste mês"
                     text="Finalize um treino para começar o acompanhamento."
@@ -4523,7 +4645,7 @@ export default function ResenhaApp() {
                 </div>
               </header>
               <div className="settings-profile">
-                <ProfileAvatar name={displayName} large />
+                <AvatarPerfil name={displayName} large brand />
                 <div>
                   <strong>{displayName}</strong>
                   <small>{session.user.email}</small>
@@ -4734,7 +4856,7 @@ export default function ResenhaApp() {
                 <b>{data.players.length}</b>
               </header>
               {data.players.length === 0 ? (
-                <Empty
+                <EstadoVazio
                   icon={<Users size={27} />}
                   title="Nenhum jogador cadastrado"
                   text="Os jogadores adicionados aparecerão aqui."
@@ -4843,7 +4965,7 @@ export default function ResenhaApp() {
                 <b>{data.history.length}</b>
               </header>
               {data.history.length === 0 ? (
-                <Empty
+                <EstadoVazio
                   icon={<CalendarDays size={27} />}
                   title="Nenhuma partida salva"
                   text="As partidas encerradas aparecerão aqui."
@@ -4907,7 +5029,7 @@ export default function ResenhaApp() {
         )}
       </div>
 
-      <SiteFooter />
+      <RodapeSite />
 
       {notificationWelcomeOpen && workspaceMode === "academy" && (
         <Modal
@@ -5127,16 +5249,35 @@ export default function ResenhaApp() {
                     </select>
                   </div>
                   <div className="field">
-                    <label htmlFor="academy-height">Altura (cm)</label>
+                    <label htmlFor="academy-email">E-mail do atleta ou responsável</label>
+                    <input
+                      id="academy-email"
+                      type="email"
+                      inputMode="email"
+                      autoCapitalize="none"
+                      maxLength="254"
+                      value={playerDetails.email}
+                      onChange={(event) =>
+                        setPlayerDetails({ ...playerDetails, email: event.target.value })
+                      }
+                      placeholder="nome@email.com"
+                    />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="academy-height">Altura (m)</label>
                     <input
                       id="academy-height"
-                      type="number"
-                      min="50"
-                      max="230"
+                      type="text"
+                      inputMode="decimal"
+                      maxLength="4"
                       value={playerDetails.height}
-                      onChange={(e) =>
-                        setPlayerDetails({ ...playerDetails, height: e.target.value })
+                      onChange={(event) =>
+                        setPlayerDetails({
+                          ...playerDetails,
+                          height: event.target.value.replace(/[^0-9,.]/g, "").slice(0, 4),
+                        })
                       }
+                      placeholder="Ex.: 1,75"
                     />
                   </div>
                   <div className="field">
@@ -5324,7 +5465,7 @@ export default function ResenhaApp() {
                   </div>
                 </div>
 
-                <TuitionControl
+                <ControleMensalidades
                   profile={playerDetails}
                   onToggle={updateAnnualPayment}
                   onPaidAtChange={updateAnnualPaymentDate}
@@ -5352,6 +5493,49 @@ export default function ResenhaApp() {
                 <Save size={18} /> {playerDetails.playerId ? "Salvar ficha" : "Cadastrar aluno"}
               </button>
             </div>
+          </form>
+        </Modal>
+      )}
+
+      {blankFormShareOpen && (
+        <Modal
+          onClose={() => setBlankFormShareOpen(false)}
+          icon={<Mail size={25} />}
+          color="green"
+          title="Enviar ficha de cadastro"
+          text="O documento enviado estará vazio para que o atleta ou responsável faça o preenchimento."
+        >
+          <form
+            onSubmit={async (event) => {
+              event.preventDefault();
+              try {
+                await shareBlankStudentForm(blankFormEmail.trim());
+                setBlankFormShareOpen(false);
+              } catch (error) {
+                if (error?.name !== "AbortError")
+                  setSetupMessage("Não foi possível preparar o envio da ficha de cadastro.");
+              }
+            }}
+          >
+            <div className="field">
+              <label htmlFor="blank-form-email">E-mail do atleta ou responsável</label>
+              <input
+                id="blank-form-email"
+                type="email"
+                inputMode="email"
+                autoCapitalize="none"
+                autoComplete="email"
+                maxLength="254"
+                value={blankFormEmail}
+                onChange={(event) => setBlankFormEmail(event.target.value)}
+                placeholder="nome@email.com"
+                required
+                autoFocus
+              />
+            </div>
+            <button className="button primary large full" type="submit">
+              <Mail size={18} /> Preparar envio
+            </button>
           </form>
         </Modal>
       )}
@@ -5438,6 +5622,19 @@ export default function ResenhaApp() {
                 </select>
               </div>
             )}
+            {sportKind(match.sport) === "basketball" && (
+              <div className="field">
+                <label htmlFor="basket-points">Valor da cesta</label>
+                <select
+                  id="basket-points"
+                  value={basketPoints}
+                  onChange={(event) => setBasketPoints(Number(event.target.value))}
+                >
+                  <option value="1">1 ponto</option>
+                  <option value="3">3 pontos</option>
+                </select>
+              </div>
+            )}
             <button
               className="button primary large full"
               disabled={!goalScorer}
@@ -5446,6 +5643,7 @@ export default function ResenhaApp() {
                   goalTeam,
                   goalScorer,
                   sportKind(match.sport) === "football" ? goalAssist : "",
+                  sportKind(match.sport) === "basketball" ? basketPoints : 1,
                 )
               }
             >
@@ -5651,10 +5849,10 @@ export default function ResenhaApp() {
         >
           <form className="profile-form" onSubmit={saveProfile}>
             <div className="profile-initial-preview">
-              <ProfileAvatar name={profileName || displayName} large />
+              <AvatarPerfil name={profileName || displayName} large brand />
               <span>
-                <strong>Inicial do perfil</strong>
-                <small>Gerada automaticamente a partir do nome.</small>
+                <strong>Identidade do perfil</strong>
+                <small>Símbolo oficial do Resenha.</small>
               </span>
             </div>
             <div className="field">

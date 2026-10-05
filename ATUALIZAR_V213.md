@@ -10,7 +10,7 @@
 
 ## Como atualizar
 
-Substitua os arquivos do projeto pelos deste pacote, mantendo o seu `.env` local e os *secrets* já configurados no GitHub. Depois execute:
+Substitua os arquivos do projeto pelos deste pacote, mantendo o seu `.env` local e os _secrets_ já configurados no GitHub. Depois execute:
 
 ```bash
 npm install

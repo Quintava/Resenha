@@ -1,7 +1,7 @@
 import { ArrowLeft, ChevronRight, CloudOff, Eye, EyeOff, LockKeyhole, Mail } from "lucide-react";
 import { useEffect, useState } from "react";
-import { ThemeToggle } from "../common/Common";
-import { PASSWORD_MIN_LENGTH } from "../../utils/security";
+import { AlternadorTema } from "../comuns/ComponentesComuns";
+import { PASSWORD_MIN_LENGTH } from "../../utilitarios/seguranca";
 
 const mascotSrc = `${import.meta.env.BASE_URL}assets/mascote-resenha.webp`;
 const brandIconSrc = `${import.meta.env.BASE_URL}assets/logo-resenha.webp`;
@@ -56,7 +56,7 @@ function AuthSportCarousel() {
   );
 }
 
-export function AuthScreen({
+export function TelaAutenticacao({
   mode,
   setMode,
   email,
@@ -76,7 +76,7 @@ export function AuthScreen({
 }) {
   return (
     <main className="auth-page">
-      <ThemeToggle theme={theme} setTheme={setTheme} className="auth-theme" />
+      <AlternadorTema theme={theme} setTheme={setTheme} className="auth-theme" />
       <section className="auth-hero">
         <div className="auth-brand">
           <span className="brand-mark mascot-brand-mark">
@@ -208,7 +208,7 @@ export function AuthScreen({
   );
 }
 
-export function PasswordRecoveryScreen({
+export function TelaRecuperacaoSenha({
   password,
   setPassword,
   confirm,
@@ -222,7 +222,7 @@ export function PasswordRecoveryScreen({
 }) {
   return (
     <main className="auth-page recovery-page">
-      <ThemeToggle theme={theme} setTheme={setTheme} className="auth-theme" />
+      <AlternadorTema theme={theme} setTheme={setTheme} className="auth-theme" />
       <section className="auth-hero">
         <div className="auth-brand">
           <span className="brand-mark mascot-brand-mark">
@@ -310,10 +310,10 @@ function PasswordField({ id, label, value, setValue, placeholder }) {
   );
 }
 
-export function AuthSetupRequired({ theme, setTheme }) {
+export function TelaConfiguracaoAutenticacao({ theme, setTheme }) {
   return (
     <main className="auth-page setup-required-page">
-      <ThemeToggle theme={theme} setTheme={setTheme} className="auth-theme" />
+      <AlternadorTema theme={theme} setTheme={setTheme} className="auth-theme" />
       <section className="setup-required-card">
         <span className="auth-lock">
           <CloudOff size={25} />

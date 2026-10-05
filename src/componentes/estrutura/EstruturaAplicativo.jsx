@@ -18,7 +18,7 @@ import {
   Users,
 } from "lucide-react";
 
-import { ProfileAvatar } from "../common/Common";
+import { AvatarPerfil } from "../comuns/ComponentesComuns";
 
 const brandIconSrc = `${import.meta.env.BASE_URL}assets/logo-resenha.webp`;
 const developerEmblemSrc = `${import.meta.env.BASE_URL}assets/logo-resenha.webp`;
@@ -31,7 +31,7 @@ const navigation = [
   { id: "evolution", icon: TrendingUp, title: "Evolução", detail: "Desempenho de cada jogador" },
 ];
 
-export function Topbar({
+export function BarraSuperior({
   view,
   hasMatch,
   onNavigate,
@@ -188,7 +188,7 @@ export function Topbar({
             aria-expanded={profileOpen}
             aria-haspopup="menu"
           >
-            <ProfileAvatar name={displayName} />
+            <AvatarPerfil name={displayName} brand />
             <span>
               <strong>{displayName}</strong>
               <small>{email}</small>
@@ -230,7 +230,7 @@ export function Topbar({
   );
 }
 
-export function GroupBar({
+export function BarraGrupos({
   groups,
   activeGroupId,
   onChange,
@@ -248,9 +248,7 @@ export function GroupBar({
           type="button"
         >
           <span className="mode-card-art amateur-art" aria-hidden="true">
-            <img src={`${import.meta.env.BASE_URL}assets/ranking-futebol.webp`} alt="" />
-            <img src={`${import.meta.env.BASE_URL}assets/ranking-volei.webp`} alt="" />
-            <img src={`${import.meta.env.BASE_URL}assets/ranking-basquete.webp`} alt="" />
+            <img className="mode-brand-logo" src={brandIconSrc} alt="" />
           </span>
           <span>
             <strong>Modo Amador</strong>
@@ -314,7 +312,7 @@ function ProfileAction({ className = "", icon: Icon, title, detail, onClick }) {
   );
 }
 
-export function SiteFooter() {
+export function RodapeSite() {
   return (
     <footer className="site-footer">
       <strong>Resenha</strong>
