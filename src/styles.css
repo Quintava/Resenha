@@ -3522,7 +3522,7 @@ body,
   color: var(--green-dark);
 }
 .manual-teams {
-  max-height: 270px;
+  max-height: 460px;
   overflow: auto;
   margin: -5px 0 18px;
   padding: 12px;
@@ -3542,6 +3542,65 @@ body,
 .manual-teams header small {
   color: var(--muted);
   font-size: 0.66rem;
+}
+.manual-team-names {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin: 10px 0 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.manual-team-names label {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 10px auto;
+  align-items: center;
+  gap: 4px 7px;
+  color: var(--muted);
+  font-size: 0.64rem;
+  font-weight: 850;
+}
+.manual-team-names input {
+  min-width: 0;
+  min-height: 38px;
+  grid-column: 1 / -1;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.73rem;
+  font-weight: 750;
+}
+.manual-team-names input:focus {
+  border-color: var(--green);
+  outline: 3px solid rgba(13, 143, 103, 0.12);
+}
+.manual-team-color {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--green);
+}
+.manual-team-color.blue {
+  background: var(--blue);
+}
+.manual-team-color.orange {
+  background: var(--orange);
+}
+.manual-team-color.green {
+  background: #12a866;
+}
+.manual-team-color.purple {
+  background: #7b56cf;
+}
+.manual-team-color.red {
+  background: #d94a55;
+}
+.manual-team-color.yellow {
+  background: #e4a51d;
 }
 .manual-player {
   display: flex;
@@ -5927,6 +5986,15 @@ button {
   border-color: #e4a51d;
   background: rgba(228, 165, 29, 0.12);
   color: #a26a08;
+}
+@media (max-width: 520px) {
+  .manual-team-names {
+    grid-template-columns: 1fr;
+  }
+  .manual-teams > header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 
 /* Placar principal e faixa de autores das pontuações */

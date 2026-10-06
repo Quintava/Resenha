@@ -38,6 +38,7 @@ export const initialState = {
     duration: 10,
     startersPerTeam: 5,
     teamCount: 2,
+    teamNames: [],
     drawMode: "balanced",
     sharedBench: false,
     attendanceIds: [],

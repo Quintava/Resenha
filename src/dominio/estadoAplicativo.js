@@ -2,6 +2,7 @@ import {
   DEFAULT_GROUP_ID,
   initialState,
   SPORT_PRESETS,
+  TEAM_META,
   USER_STORAGE_PREFIX,
 } from "../configuracao/configuracaoAplicativo";
 import { normalizeCareer } from "./estatisticasJogador";
@@ -167,6 +168,11 @@ export function normalizeState(raw) {
       ...(saved.settings || {}),
       // Migra modalidades removidas ou desconhecidas salvas por versões antigas.
       sport: safeSport,
+      teamNames: Array.isArray(saved.settings?.teamNames)
+        ? saved.settings.teamNames
+            .slice(0, TEAM_META.length)
+            .map((name) => String(name || "").slice(0, 30))
+        : [],
       hasFixedGoalkeepers:
         saved.settings?.hasFixedGoalkeepers ??
         (Array.isArray(saved.settings?.fixedGoalkeeperIds) &&

@@ -131,6 +131,7 @@ import {
   buildManualTeams,
   drawTeams,
   prepareGoalkeepers,
+  shortTeamName,
   substitutionBench,
 } from "../dominio/montagemTimes";
 import {
@@ -1221,6 +1222,7 @@ export default function AplicativoResenha() {
             manualAssignments,
             data.settings.startersPerTeam,
             teamCount,
+            data.settings.teamNames,
           )
         : drawTeams(ratedPlayers, data.settings.drawMode, data.settings.startersPerTeam, teamCount),
     );
@@ -1376,6 +1378,15 @@ export default function AplicativoResenha() {
             : current.settings.fixedGoalkeeperIds || [],
       },
     }));
+  const updateManualTeamName = (teamIndex, value) =>
+    setData((current) => {
+      const teamNames = [...(current.settings.teamNames || [])];
+      teamNames[teamIndex] = String(value || "").slice(0, 30);
+      return {
+        ...current,
+        settings: { ...current.settings, teamNames },
+      };
+    });
   const changeSport = (sport) => {
     const safeSport = Object.hasOwn(SPORT_PRESETS, sport) ? sport : initialState.settings.sport;
     const preset = SPORT_PRESETS[safeSport];
@@ -3256,8 +3267,24 @@ export default function AplicativoResenha() {
                 <div className="manual-teams">
                   <header>
                     <strong>Divisão manual</strong>
-                    <small>Defina o time dos presentes</small>
+                    <small>Nomeie os times e distribua os presentes</small>
                   </header>
+                  <div className="manual-team-names">
+                    {TEAM_META.slice(0, data.settings.teamCount || 2).map((team, teamIndex) => (
+                      <label key={team.id}>
+                        <span className={`manual-team-color ${team.color}`} aria-hidden="true" />
+                        <span>Time {teamIndex + 1}</span>
+                        <input
+                          type="text"
+                          maxLength="30"
+                          value={data.settings.teamNames?.[teamIndex] || ""}
+                          onChange={(event) => updateManualTeamName(teamIndex, event.target.value)}
+                          placeholder={team.name}
+                          aria-label={`Nome do time ${teamIndex + 1}`}
+                        />
+                      </label>
+                    ))}
+                  </div>
                   {presentPlayers.map((player) => (
                     <div className="manual-player" key={player.id}>
                       <span>{player.name}</span>
@@ -3273,8 +3300,9 @@ export default function AplicativoResenha() {
                                 [player.id]: teamIndex,
                               }))
                             }
+                            title={data.settings.teamNames?.[teamIndex]?.trim() || team.name}
                           >
-                            {team.short}
+                            {shortTeamName(data.settings.teamNames?.[teamIndex], team.short)}
                           </button>
                         ))}
                       </div>

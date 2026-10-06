@@ -54,9 +54,43 @@ export function prepareGoalkeepers(teams) {
   });
 }
 
-// Constrói os times conforme a escolha manual feita na tela de preparação.
-export function buildManualTeams(players, assignments, startersPerTeam, teamCount = 2) {
-  const teams = TEAM_META.slice(0, teamCount).map((meta) => ({ ...meta, starters: [], bench: [] }));
+export const shortTeamName = (name, fallback = "TIM") => {
+  const words = String(name || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!words.length) return fallback;
+  if (words.length > 1)
+    return words
+      .slice(0, 3)
+      .map((word) => word[0])
+      .join("")
+      .toUpperCase();
+  return words[0].slice(0, 3).toUpperCase();
+};
+
+// Constrói os times conforme a escolha manual e aplica os nomes informados pelo organizador.
+export function buildManualTeams(
+  players,
+  assignments,
+  startersPerTeam,
+  teamCount = 2,
+  teamNames = [],
+) {
+  const teams = TEAM_META.slice(0, teamCount).map((meta, index) => {
+    const customName = String(teamNames[index] || "")
+      .trim()
+      .slice(0, 30);
+    return {
+      ...meta,
+      name: customName || meta.name,
+      short: shortTeamName(customName, meta.short),
+      starters: [],
+      bench: [],
+    };
+  });
   players.forEach((player) => {
     const target = assignments[player.id];
     if (!Number.isInteger(target) || target < 0 || target >= teamCount) return;
