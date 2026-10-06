@@ -230,28 +230,6 @@ export const downloadBlankStudentForm = () => {
   download(createProfessionalBlankForm(), "ficha-cadastro-aluno.pdf");
 };
 
-// A ficha compartilhada é o modelo vazio, próprio para o responsável preencher.
-export const shareBlankStudentForm = async (recipientEmail = "") => {
-  const bytes = createProfessionalBlankForm();
-  const filename = "ficha-cadastro-aluno.pdf";
-  const file = new File([bytes], filename, { type: "application/pdf" });
-  if (navigator.share && navigator.canShare?.({ files: [file] })) {
-    await navigator.share({
-      files: [file],
-      title: "Ficha de cadastro do atleta",
-      text: "Preencha a ficha de cadastro do atleta e encaminhe ao responsável pelo grupo.",
-    });
-    return "shared";
-  }
-  download(bytes, filename);
-  const subject = encodeURIComponent("Ficha de cadastro do atleta");
-  const body = encodeURIComponent(
-    "A ficha de cadastro foi baixada. Anexe o PDF a esta mensagem antes de enviar.",
-  );
-  window.location.href = `mailto:${encodeURIComponent(recipientEmail)}?subject=${subject}&body=${body}`;
-  return "email";
-};
-
 const createStudentPdfFile = (student) => {
   const profile = student.academyProfile || student;
   const rows = [

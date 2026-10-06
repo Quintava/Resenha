@@ -48,7 +48,7 @@ import {
   X,
 } from "lucide-react";
 import { supabase, supabaseConfigured } from "../supabase";
-import { downloadStudentForm, shareBlankStudentForm } from "../utilitarios/fichaAtletaPdf";
+import { downloadBlankStudentForm, downloadStudentForm } from "../utilitarios/fichaAtletaPdf";
 import {
   canonicalSport,
   scoreAction,
@@ -192,6 +192,28 @@ const maskPhone = (value) => {
   return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
 };
 
+// Rótulos usados no histórico expandido das partidas salvas.
+const historicalEventLabel = (event, sport) => {
+  if (event.type === "goal") {
+    const points = sportKind(sport) === "basketball" ? ` (${event.pointValue || 1} pts)` : "";
+    const assist = event.assistPlayerName ? ` · assistência de ${event.assistPlayerName}` : "";
+    return `${scoreAction(sport)} de ${event.playerName}${points}${assist}`;
+  }
+  if (event.type === "own_goal") return `Gol contra de ${event.playerName}`;
+  if (event.type === "missed_penalty") return `Pênalti perdido por ${event.playerName}`;
+  if (event.type === "goalkeeper_save") return `Defesa de ${event.playerName}`;
+  if (event.type === "goalkeeper_difficult_save") return `Defesa difícil de ${event.playerName}`;
+  if (event.type === "goalkeeper_penalty_save") return `Pênalti defendido por ${event.playerName}`;
+  if (event.type === "goalkeeper_error") return `Falha do goleiro ${event.playerName}`;
+  if (event.type === "sub") return `Entrou ${event.playerIn} · saiu ${event.playerOut}`;
+  if (event.type === "position_change")
+    return `Troca de posição entre ${event.playerOut} e ${event.playerIn}`;
+  if (event.type === "goalkeeper_change") return `${event.playerIn} assumiu o gol`;
+  if (event.type === "match_highlight") return `${event.playerName} foi o destaque da partida`;
+  if (event.type === "score_adjustment") return "Correção manual do placar";
+  return "Lance registrado";
+};
+
 export default function AplicativoResenha() {
   // Estado principal da conta e navegação.
   const [data, setData] = useState(initialState);
@@ -237,8 +259,6 @@ export default function AplicativoResenha() {
   const [rankingScope, setRankingScope] = useState("overall");
   const [rankingRole, setRankingRole] = useState("line");
   const [rankingMatchId, setRankingMatchId] = useState("");
-  const [blankFormShareOpen, setBlankFormShareOpen] = useState(false);
-  const [blankFormEmail, setBlankFormEmail] = useState("");
   const [theme, setTheme] = useState(
     () =>
       localStorage.getItem(THEME_KEY) ||
@@ -2934,12 +2954,9 @@ export default function AplicativoResenha() {
                   <button
                     className="button secondary academy-blank-form-button"
                     type="button"
-                    onClick={() => {
-                      setBlankFormEmail("");
-                      setBlankFormShareOpen(true);
-                    }}
+                    onClick={downloadBlankStudentForm}
                   >
-                    <Mail size={18} /> Enviar ficha cadastro
+                    <Download size={18} /> Ficha cadastro
                   </button>
                 </div>
               ) : (
@@ -3741,33 +3758,54 @@ export default function AplicativoResenha() {
                 ) : (
                   <div className="history-list">
                     {monthMatches.map((game) => (
-                      <div className="history-row" key={game.id}>
-                        <div className="history-date">
-                          <strong>
-                            {new Date(game.finishedAt || game.date).toLocaleDateString("pt-BR", {
-                              day: "2-digit",
-                              month: "short",
-                            })}
-                          </strong>
-                          <small>
-                            {canonicalSport(game.sport)} ·{" "}
-                            {
-                              (
-                                game.attendanceIds ||
-                                game.teams.flatMap((team) => [...team.starters, ...team.bench])
-                              ).length
-                            }{" "}
-                            presentes
-                          </small>
+                      <details className="history-details" key={game.id}>
+                        <summary className="history-row">
+                          <div className="history-date">
+                            <strong>
+                              {new Date(game.finishedAt || game.date).toLocaleDateString("pt-BR", {
+                                day: "2-digit",
+                                month: "short",
+                              })}
+                            </strong>
+                            <small>
+                              {canonicalSport(game.sport)} ·{" "}
+                              {
+                                (
+                                  game.attendanceIds ||
+                                  game.teams.flatMap((team) => [...team.starters, ...team.bench])
+                                ).length
+                              }{" "}
+                              presentes
+                            </small>
+                          </div>
+                          <div className="history-score">
+                            <span>{game.teams[0].short}</span>
+                            <strong>
+                              {game.score[0]} <i>×</i> {game.score[1]}
+                            </strong>
+                            <span>{game.teams[1].short}</span>
+                            <ChevronDown className="history-chevron" size={17} />
+                          </div>
+                        </summary>
+                        <div className="history-events">
+                          {(game.events || []).length ? (
+                            [...game.events]
+                              .sort(
+                                (a, b) =>
+                                  Number(a.elapsedSeconds || a.minute * 60 || 0) -
+                                  Number(b.elapsedSeconds || b.minute * 60 || 0),
+                              )
+                              .map((event) => (
+                                <div className="history-event" key={event.id}>
+                                  <time>{event.minute || 0}&apos;</time>
+                                  <span>{historicalEventLabel(event, game.sport)}</span>
+                                </div>
+                              ))
+                          ) : (
+                            <p>Nenhum lance foi registrado nesta partida.</p>
+                          )}
                         </div>
-                        <div className="history-score">
-                          <span>{game.teams[0].short}</span>
-                          <strong>
-                            {game.score[0]} <i>×</i> {game.score[1]}
-                          </strong>
-                          <span>{game.teams[1].short}</span>
-                        </div>
-                      </div>
+                      </details>
                     ))}
                   </div>
                 )}
@@ -4645,7 +4683,7 @@ export default function AplicativoResenha() {
                 </div>
               </header>
               <div className="settings-profile">
-                <AvatarPerfil name={displayName} large brand />
+                <AvatarPerfil name={displayName} large icon />
                 <div>
                   <strong>{displayName}</strong>
                   <small>{session.user.email}</small>
@@ -5497,49 +5535,6 @@ export default function AplicativoResenha() {
         </Modal>
       )}
 
-      {blankFormShareOpen && (
-        <Modal
-          onClose={() => setBlankFormShareOpen(false)}
-          icon={<Mail size={25} />}
-          color="green"
-          title="Enviar ficha de cadastro"
-          text="O documento enviado estará vazio para que o atleta ou responsável faça o preenchimento."
-        >
-          <form
-            onSubmit={async (event) => {
-              event.preventDefault();
-              try {
-                await shareBlankStudentForm(blankFormEmail.trim());
-                setBlankFormShareOpen(false);
-              } catch (error) {
-                if (error?.name !== "AbortError")
-                  setSetupMessage("Não foi possível preparar o envio da ficha de cadastro.");
-              }
-            }}
-          >
-            <div className="field">
-              <label htmlFor="blank-form-email">E-mail do atleta ou responsável</label>
-              <input
-                id="blank-form-email"
-                type="email"
-                inputMode="email"
-                autoCapitalize="none"
-                autoComplete="email"
-                maxLength="254"
-                value={blankFormEmail}
-                onChange={(event) => setBlankFormEmail(event.target.value)}
-                placeholder="nome@email.com"
-                required
-                autoFocus
-              />
-            </div>
-            <button className="button primary large full" type="submit">
-              <Mail size={18} /> Preparar envio
-            </button>
-          </form>
-        </Modal>
-      )}
-
       {groupModalOpen && (
         <Modal
           onClose={() => !groupBusy && setGroupModalOpen(false)}
@@ -5845,14 +5840,14 @@ export default function AplicativoResenha() {
           icon={<UserRound size={25} />}
           color="green"
           title="Meu perfil"
-          text="Personalize o nome exibido na conta. A inicial é criada automaticamente."
+          text="Personalize o nome exibido na conta."
         >
           <form className="profile-form" onSubmit={saveProfile}>
             <div className="profile-initial-preview">
-              <AvatarPerfil name={profileName || displayName} large brand />
+              <AvatarPerfil name={profileName || displayName} large icon />
               <span>
-                <strong>Identidade do perfil</strong>
-                <small>Símbolo oficial do Resenha.</small>
+                <strong>Perfil da conta</strong>
+                <small>Ícone padrão de usuário.</small>
               </span>
             </div>
             <div className="field">

@@ -1,4 +1,4 @@
-import { Check, ChevronLeft, ChevronRight, Moon, Sun, X } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight, Moon, Sun, UserRound, X } from "lucide-react";
 
 export function AlternadorTema({ theme, setTheme, className = "" }) {
   return (
@@ -16,11 +16,11 @@ export function Avatar({ name }) {
   return <span className="avatar">{name.slice(0, 2).toUpperCase()}</span>;
 }
 
-export function AvatarPerfil({ name, large = false, brand = false }) {
+export function AvatarPerfil({ name, large = false, icon = false }) {
   return (
-    <span className={`profile-avatar ${large ? "large" : ""} ${brand ? "brand-avatar" : ""}`}>
-      {brand ? (
-        <img src={`${import.meta.env.BASE_URL}assets/logo-resenha.webp`} alt="Resenha" />
+    <span className={`profile-avatar ${large ? "large" : ""} ${icon ? "icon-avatar" : ""}`}>
+      {icon ? (
+        <UserRound aria-hidden="true" />
       ) : (
         String(name || "Usuário")
           .trim()

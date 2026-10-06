@@ -125,12 +125,7 @@ export function BarraSuperior({
               aria-expanded={notificationsOpen}
               aria-haspopup="dialog"
             >
-              <img
-                className="notification-emblem"
-                src={developerEmblemSrc}
-                alt=""
-                aria-hidden="true"
-              />
+              <Bell className="notification-bell" size={20} aria-hidden="true" />
               {unreadNotifications > 0 && (
                 <span className="notification-count">{unreadNotifications}</span>
               )}
@@ -188,7 +183,7 @@ export function BarraSuperior({
             aria-expanded={profileOpen}
             aria-haspopup="menu"
           >
-            <AvatarPerfil name={displayName} brand />
+            <AvatarPerfil name={displayName} icon />
             <span>
               <strong>{displayName}</strong>
               <small>{email}</small>
@@ -200,7 +195,7 @@ export function BarraSuperior({
               <ProfileAction
                 icon={UserRound}
                 title="Meu perfil"
-                detail="Nome e inicial"
+                detail="Nome da conta"
                 onClick={onOpenProfile}
               />
               <ProfileAction
