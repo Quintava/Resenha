@@ -258,6 +258,11 @@ export default function PaginaPublica({ slug }) {
                     ? "Média mensal"
                     : "Ranking da partida"}
               </h2>
+              {rankingScope === "career" && (
+                <p className="public-ranking-rule">
+                  A classificação de carreira começa após 3 partidas e usa média ajustada.
+                </p>
+              )}
             </div>
           </header>
           <div className="ranking-filter-row">

@@ -44,3 +44,18 @@ git push
 ```
 
 Na aba **Actions**, aguarde o fluxo **Publicar no GitHub Pages** terminar com sucesso.
+
+## 6. Atualizar a regra pública do ranking
+
+No **SQL Editor** do Supabase, execute o arquivo `supabase/schema.sql`. Essa etapa mantém o Mural
+público com a mesma regra de três partidas e média ajustada usada dentro do aplicativo.
+
+## 7. Solicitar indexação no Google
+
+1. Adicione `qresenha.com.br` como propriedade de domínio no Google Search Console.
+2. Faça a verificação pelo registro TXT solicitado no DNS do Registro.br.
+3. Envie o sitemap `https://www.qresenha.com.br/sitemap.xml`.
+4. Inspecione `https://www.qresenha.com.br/` e solicite a indexação.
+
+Os arquivos ajudam o buscador a entender o site, mas a exibição nos resultados não é imediata nem
+garantida. O Google decide quando indexar e como posicionar cada termo pesquisado.

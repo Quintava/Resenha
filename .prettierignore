@@ -2,3 +2,5 @@ node_modules
 dist
 *.zip
 supabase/schema.sql
+public/robots.txt
+public/sitemap.xml

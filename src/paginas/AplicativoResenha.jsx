@@ -55,6 +55,7 @@ import {
   scoreWord,
   sportKind,
   starsFromScore,
+  adjustedRankingScore,
 } from "../dominio/esportes";
 import {
   TelaAutenticacao,
@@ -95,6 +96,8 @@ import {
   LEGACY_STORAGE_KEY,
   MIGRATION_OWNER_KEY,
   PLAYER_PAGE_SIZE,
+  MINIMUM_CAREER_GAMES,
+  RANKING_REFERENCE_GAMES,
   SPORT_PRESETS,
   TEAM_META,
   THEME_KEY,
@@ -1176,8 +1179,8 @@ export default function AplicativoResenha() {
     const teamCount = Math.max(2, Math.min(TEAM_META.length, Number(data.settings.teamCount) || 2));
     const ratedPlayers = presentPlayers.map(({ academyProfile: _privateProfile, ...player }) => ({
       ...player,
-      rating: playerStats.get(player.id)?.rating || 1,
-      balanceScore: playerStats.get(player.id)?.balanceScore || 6,
+      rating: playerStats.get(player.id)?.rating ?? 0,
+      balanceScore: playerStats.get(player.id)?.balanceScore ?? 0,
       evaluatedGames: playerStats.get(player.id)?.matches || 0,
       fixedGoalkeeper: (data.settings.fixedGoalkeeperIds || []).includes(player.id),
     }));
@@ -2055,10 +2058,25 @@ export default function AplicativoResenha() {
   );
   const overallRanking = useMemo(() => {
     const sport = canonicalSport(statsSport);
-    return activePlayers
+    const careers = activePlayers
       .map((player) => {
         const career = normalizeCareer(player.career)?.sports?.[sport];
         if (!career?.games) return null;
+        return { player, career };
+      })
+      .filter(Boolean);
+    const groupAverage = careers.length
+      ? careers.reduce((total, item) => total + item.career.evaluationAverage, 0) / careers.length
+      : 6;
+    return careers
+      .filter(({ career }) => career.games >= MINIMUM_CAREER_GAMES)
+      .map(({ player, career }) => {
+        const adjustedEvaluation = adjustedRankingScore(
+          career.evaluationAverage,
+          career.games,
+          groupAverage,
+          RANKING_REFERENCE_GAMES,
+        );
         return {
           id: player.id,
           name: player.name,
@@ -2073,11 +2091,11 @@ export default function AplicativoResenha() {
           games: career.games,
           total:
             sportKind(statsSport) === "football" ? career.points + career.assists : career.points,
-          evaluation: Number(career.evaluationAverage.toFixed(1)),
-          stars: career.stars,
+          evaluation: adjustedEvaluation,
+          rawEvaluation: Number(career.evaluationAverage.toFixed(1)),
+          stars: starsFromScore(adjustedEvaluation, career.games),
         };
       })
-      .filter(Boolean)
       .sort(
         (a, b) =>
           b.evaluation - a.evaluation ||
@@ -3688,6 +3706,8 @@ export default function AplicativoResenha() {
                     {workspaceMode === "academy" && " A presença vale +0,20."} O bônus ofensivo é
                     limitado a +2,0
                     {currentRankingKind === "football" && "; ações de goleiro têm pesos próprios"}.
+                    {rankingScope === "overall" &&
+                      ` A carreira exige ${MINIMUM_CAREER_GAMES} partidas e usa uma média ajustada para evitar vantagem por pouca amostragem.`}
                   </p>
                   <TabelaDesempenho
                     ranking={displayedRoleRanking.map((player) => {
@@ -3932,11 +3952,11 @@ export default function AplicativoResenha() {
                       <span className="eyebrow">NÍVEL GERAL</span>
                       <h2>{evolutionPlayer.name}</h2>
                       <Estrelas
-                        rating={playerStats.get(evolutionPlayer.id)?.rating || 1}
+                        rating={playerStats.get(evolutionPlayer.id)?.rating ?? 0}
                         label="Nível geral do jogador"
                       />
                       <p>
-                        {playerStats.get(evolutionPlayer.id)?.label || ratingLabel(1)} · avaliação{" "}
+                        {playerStats.get(evolutionPlayer.id)?.label || "Sem avaliação"} · avaliação{" "}
                         {playerStats.get(evolutionPlayer.id)?.evaluation?.toFixed(1) || "—"}
                       </p>
                     </div>
@@ -4955,7 +4975,9 @@ export default function AplicativoResenha() {
                           <small>
                             {player.suspended
                               ? "Suspenso · fora das seleções e classificações"
-                              : `Ativo · nível ${playerStats.get(player.id)?.rating || 1}★`}
+                              : playerStats.get(player.id)?.matches
+                                ? `Ativo · nível ${playerStats.get(player.id)?.rating ?? 0}★`
+                                : "Ativo · sem avaliação"}
                           </small>
                         </div>
                       )}

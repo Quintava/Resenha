@@ -549,7 +549,7 @@ performance as (
     roster.payload,
     roster.team_index
 ),
-ranking as (
+ranking_base as (
   select
     id,
     max(name) as name,
@@ -562,6 +562,33 @@ ranking as (
     round(avg(score), 1) as evaluation
   from performance
   group by id
+),
+ranking_group_average as (
+  select coalesce(avg(evaluation), 6)::numeric as evaluation
+  from ranking_base
+),
+ranking as (
+  select
+    ranked.id,
+    ranked.name,
+    ranked.goals,
+    ranked.assists,
+    ranked.saves,
+    ranked.games,
+    ranked.average,
+    ranked.save_average,
+    ranked.evaluation as raw_evaluation,
+    round(
+      (
+        ranked.evaluation * ranked.games
+        + group_average.evaluation * 3
+      ) / (ranked.games + 3),
+      1
+    ) as evaluation
+  from ranking_base as ranked
+  cross join ranking_group_average as group_average
+  -- A carreira só ganha posição depois de três partidas concluídas.
+  where ranked.games >= 3
 ),
 monthly_ranking as (
   select

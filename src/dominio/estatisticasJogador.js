@@ -180,7 +180,7 @@ function emptyCareerStats() {
     assists: 0,
     evaluationTotal: 0,
     evaluationAverage: 0,
-    stars: 1,
+    stars: 0,
     goalkeeperAppearances: 0,
     goalkeeperSeconds: 0,
     goalkeeperEvaluationSeconds: 0,
@@ -326,7 +326,7 @@ export function rebuildPlayerCareers(players, history) {
 }
 
 const ratingLabel = (rating) =>
-  ["", "Em evolução", "Regular", "Destaque", "Craque", "Elite"][rating];
+  ["Sem avaliação", "Em evolução", "Regular", "Destaque", "Craque", "Elite"][rating];
 
 export function playerWasInMatch(match, playerId) {
   if (Array.isArray(match.attendanceIds)) return match.attendanceIds.includes(playerId);
@@ -370,11 +370,11 @@ export function buildPlayerStats(players, history, selectedSport) {
       const recent = performances.slice(0, 10);
       const recentAverage = recent.length
         ? recent.reduce((sum, item) => sum + item.score, 0) / recent.length
-        : evaluation || 6;
-      const stabilizedAverage = matches ? (evaluation * matches + 18) / (matches + 3) : 6;
+        : evaluation;
+      const stabilizedAverage = matches ? (evaluation * matches + 18) / (matches + 3) : 0;
       const balanceScore = matches
         ? Number((recentAverage * 0.7 + stabilizedAverage * 0.3).toFixed(2))
-        : 6;
+        : 0;
       const rating = sportCareer?.stars ?? starsFromScore(evaluation, matches);
       return [
         player.id,
