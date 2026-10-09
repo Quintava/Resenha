@@ -36,7 +36,7 @@ const rankingArtwork = {
   volleyball: `${import.meta.env.BASE_URL}assets/ranking-volei.webp`,
   basketball: `${import.meta.env.BASE_URL}assets/ranking-basquete.webp`,
 };
-const brandLogo = `${import.meta.env.BASE_URL}assets/icone-qresenha.webp`;
+const brandLogo = `${import.meta.env.BASE_URL}assets/logo-resenha.webp`;
 
 function eventLabel(event, sport) {
   const point =

@@ -80,7 +80,6 @@ export function TelaAutenticacao({
       <section className="auth-hero">
         <div className="auth-brand">
           <img className="auth-brand-logo" src={brandLogoSrc} alt="QResenha" />
-          <small>Organização completa do jogo</small>
         </div>
         <div className="auth-stage">
           <AuthSportCarousel />

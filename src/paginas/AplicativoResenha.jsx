@@ -161,7 +161,7 @@ import {
 } from "../servicoDados";
 
 const PaginaPublica = lazy(() => import("../PaginaPublica"));
-const brandIconSrc = `${import.meta.env.BASE_URL}assets/icone-qresenha.webp`;
+const brandIconSrc = `${import.meta.env.BASE_URL}assets/logo-resenha.webp`;
 const appBaseUrl = new URL(import.meta.env.BASE_URL, window.location.href).href;
 
 const monthlyDueDate = (month, dueDay) => {

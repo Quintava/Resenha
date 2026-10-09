@@ -20,8 +20,8 @@ import {
 
 import { AvatarPerfil } from "../comuns/ComponentesComuns";
 
-const brandIconSrc = `${import.meta.env.BASE_URL}assets/icone-qresenha.webp`;
-const developerEmblemSrc = `${import.meta.env.BASE_URL}assets/icone-qresenha.webp`;
+const brandIconSrc = `${import.meta.env.BASE_URL}assets/logo-resenha.webp`;
+const developerEmblemSrc = `${import.meta.env.BASE_URL}assets/logo-resenha.webp`;
 
 const navigation = [
   { id: "setup", icon: Users, title: "Preparar jogo", detail: "Presença e divisão dos times" },

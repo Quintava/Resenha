@@ -2362,7 +2362,7 @@ body,
 }
 .auth-brand-logo {
   display: block;
-  width: clamp(150px, 17vw, 230px);
+  width: clamp(132px, 14vw, 190px);
   height: auto;
   object-fit: contain;
 }
