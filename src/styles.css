@@ -2360,6 +2360,18 @@ body,
   top: 30px;
   left: clamp(40px, 7vw, 110px);
 }
+.auth-brand-logo {
+  display: block;
+  width: clamp(150px, 17vw, 230px);
+  height: auto;
+  object-fit: contain;
+}
+.auth-brand > small {
+  max-width: 150px;
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
 .auth-brand .brand-mark {
   background: #fff;
   color: #0b7155;

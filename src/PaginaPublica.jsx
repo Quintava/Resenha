@@ -36,7 +36,7 @@ const rankingArtwork = {
   volleyball: `${import.meta.env.BASE_URL}assets/ranking-volei.webp`,
   basketball: `${import.meta.env.BASE_URL}assets/ranking-basquete.webp`,
 };
-const brandLogo = `${import.meta.env.BASE_URL}assets/logo-resenha.webp`;
+const brandLogo = `${import.meta.env.BASE_URL}assets/icone-qresenha.webp`;
 
 function eventLabel(event, sport) {
   const point =
@@ -578,13 +578,13 @@ export default function PaginaPublica({ slug }) {
           </article>
         </div>
         <p className="scoring-guide-note">
-          Para equilibrar os times, o Resenha combina 70% da média das últimas partidas com 30% da
+          Para equilibrar os times, o QResenha combina 70% da média das últimas partidas com 30% da
           média geral estabilizada. Assim, uma atuação isolada pesa, mas não distorce todo o
           histórico.
         </p>
       </section>
       <footer className="site-footer">
-        <strong>Resenha</strong>
+        <strong>QResenha</strong>
         <span>Criado e desenvolvido por Adriel Alves Quintava.</span>
         <small>Projeto em evolução — feito para a resenha ficar ainda melhor.</small>
       </footer>

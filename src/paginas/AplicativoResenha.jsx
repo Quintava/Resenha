@@ -161,7 +161,7 @@ import {
 } from "../servicoDados";
 
 const PaginaPublica = lazy(() => import("../PaginaPublica"));
-const brandIconSrc = `${import.meta.env.BASE_URL}assets/logo-resenha.webp`;
+const brandIconSrc = `${import.meta.env.BASE_URL}assets/icone-qresenha.webp`;
 const appBaseUrl = new URL(import.meta.env.BASE_URL, window.location.href).href;
 
 const monthlyDueDate = (month, dueDay) => {
@@ -2839,7 +2839,7 @@ export default function AplicativoResenha() {
           </section>
         ) : (
           <div className="startup-loading">
-            <RefreshCw className="spin" size={24} /> Preparando o Resenha…
+            <RefreshCw className="spin" size={24} /> Preparando o QResenha…
           </div>
         )}
       </main>

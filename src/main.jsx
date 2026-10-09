@@ -15,7 +15,7 @@ class AppErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error) {
-    console.error("Falha ao iniciar o Resenha:", error);
+    console.error("Falha ao iniciar o QResenha:", error);
   }
 
   render() {
@@ -23,7 +23,7 @@ class AppErrorBoundary extends React.Component {
     return (
       <main className="fatal-error" role="alert">
         <section>
-          <strong>Resenha</strong>
+          <strong>QResenha</strong>
           <h1>Não foi possível abrir o aplicativo</h1>
           <p>Recarregue a página. Seus jogadores e históricos continuam protegidos.</p>
           <button type="button" onClick={() => window.location.reload()}>

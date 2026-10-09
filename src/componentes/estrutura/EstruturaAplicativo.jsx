@@ -20,8 +20,8 @@ import {
 
 import { AvatarPerfil } from "../comuns/ComponentesComuns";
 
-const brandIconSrc = `${import.meta.env.BASE_URL}assets/logo-resenha.webp`;
-const developerEmblemSrc = `${import.meta.env.BASE_URL}assets/logo-resenha.webp`;
+const brandIconSrc = `${import.meta.env.BASE_URL}assets/icone-qresenha.webp`;
+const developerEmblemSrc = `${import.meta.env.BASE_URL}assets/icone-qresenha.webp`;
 
 const navigation = [
   { id: "setup", icon: Users, title: "Preparar jogo", detail: "Presença e divisão dos times" },
@@ -64,7 +64,7 @@ export function BarraSuperior({
           <img src={brandIconSrc} alt="" aria-hidden="true" />
         </span>
         <span>
-          <strong>Resenha</strong>
+          <strong>QResenha</strong>
           <small>Organização para cada partida.</small>
         </span>
       </button>
@@ -310,7 +310,7 @@ function ProfileAction({ className = "", icon: Icon, title, detail, onClick }) {
 export function RodapeSite() {
   return (
     <footer className="site-footer">
-      <strong>Resenha</strong>
+      <strong>QResenha</strong>
       <div className="footer-developer">
         <img src={developerEmblemSrc} alt="" aria-hidden="true" />
         <span>

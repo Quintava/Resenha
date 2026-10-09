@@ -44,7 +44,9 @@ jobs:
         run: |
           test -f dist/index.html
           test -d dist/assets
-          grep -q './assets/' dist/index.html
+          test -f dist/CNAME
+          grep -q '/assets/' dist/index.html
+          grep -q 'www.qresenha.com.br' dist/CNAME
 
       - name: Configurar o GitHub Pages
         uses: actions/configure-pages@v6

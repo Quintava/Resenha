@@ -4,22 +4,22 @@ import { AlternadorTema } from "../comuns/ComponentesComuns";
 import { PASSWORD_MIN_LENGTH } from "../../utilitarios/seguranca";
 
 const mascotSrc = `${import.meta.env.BASE_URL}assets/mascote-resenha.webp`;
-const brandIconSrc = `${import.meta.env.BASE_URL}assets/logo-resenha.webp`;
+const brandLogoSrc = `${import.meta.env.BASE_URL}assets/logo-qresenha.webp`;
 const authSlides = [
-  { src: mascotSrc, alt: "Mascote esportivo do Resenha", type: "mascot" },
+  { src: mascotSrc, alt: "Mascote esportivo do QResenha", type: "mascot" },
   {
     src: `${import.meta.env.BASE_URL}assets/ranking-futebol.webp`,
-    alt: "Equipe de futebol do Resenha",
+    alt: "Equipe de futebol do QResenha",
     type: "team",
   },
   {
     src: `${import.meta.env.BASE_URL}assets/ranking-volei.webp`,
-    alt: "Equipe de vôlei do Resenha",
+    alt: "Equipe de vôlei do QResenha",
     type: "team",
   },
   {
     src: `${import.meta.env.BASE_URL}assets/ranking-basquete.webp`,
-    alt: "Equipe de basquete do Resenha",
+    alt: "Equipe de basquete do QResenha",
     type: "team",
   },
 ];
@@ -79,13 +79,8 @@ export function TelaAutenticacao({
       <AlternadorTema theme={theme} setTheme={setTheme} className="auth-theme" />
       <section className="auth-hero">
         <div className="auth-brand">
-          <span className="brand-mark mascot-brand-mark">
-            <img src={brandIconSrc} alt="" aria-hidden="true" />
-          </span>
-          <span>
-            <strong>Resenha</strong>
-            <small>Organização completa do jogo</small>
-          </span>
+          <img className="auth-brand-logo" src={brandLogoSrc} alt="QResenha" />
+          <small>Organização completa do jogo</small>
         </div>
         <div className="auth-stage">
           <AuthSportCarousel />
@@ -225,19 +220,14 @@ export function TelaRecuperacaoSenha({
       <AlternadorTema theme={theme} setTheme={setTheme} className="auth-theme" />
       <section className="auth-hero">
         <div className="auth-brand">
-          <span className="brand-mark mascot-brand-mark">
-            <img src={brandIconSrc} alt="" aria-hidden="true" />
-          </span>
-          <span>
-            <strong>Resenha</strong>
-            <small>Recuperação de acesso</small>
-          </span>
+          <img className="auth-brand-logo" src={brandLogoSrc} alt="QResenha" />
+          <small>Recuperação de acesso</small>
         </div>
         <div className="auth-stage recovery-stage">
           <img
             className="auth-mascot recovery-mascot"
             src={mascotSrc}
-            alt="Mascote esportivo do Resenha"
+            alt="Mascote esportivo do QResenha"
             width="720"
             height="810"
           />

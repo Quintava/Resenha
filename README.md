@@ -1,4 +1,4 @@
-# Resenha
+# QResenha
 
 ## Grupos independentes
 
@@ -11,7 +11,9 @@ Cada organização pertence a uma área de gestão. Ao abrir **Amador**, aparece
 amadores; ao abrir **Escolinha**, aparecem apenas as turmas e escolinhas. Os dados nunca são
 misturados entre os dois ambientes. **Campeonato** está sinalizado como recurso futuro.
 
-Site em React para organizar jogos com amigos, controlar a partida e fechar a artilharia de cada mês.
+Aplicativo web em React para organizar grupos esportivos, controlar partidas e acompanhar rankings.
+
+Endereço oficial: [https://www.qresenha.com.br](https://www.qresenha.com.br)
 
 ## Como executar
 
