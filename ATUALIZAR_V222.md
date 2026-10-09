@@ -20,3 +20,4 @@
 - título e descrição ampliados com termos relacionados ao QResenha;
 - dados estruturados de aplicativo esportivo;
 - `robots.txt` e `sitemap.xml` prontos para o domínio oficial.
+- o GitHub Actions agora interrompe a publicação se esses dois arquivos não entrarem no build.

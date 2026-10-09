@@ -45,8 +45,12 @@ jobs:
           test -f dist/index.html
           test -d dist/assets
           test -f dist/CNAME
+          test -f dist/sitemap.xml
+          test -f dist/robots.txt
           grep -q '/assets/' dist/index.html
           grep -q 'www.qresenha.com.br' dist/CNAME
+          grep -q 'https://www.qresenha.com.br/' dist/sitemap.xml
+          grep -q 'https://www.qresenha.com.br/sitemap.xml' dist/robots.txt
 
       - name: Configurar o GitHub Pages
         uses: actions/configure-pages@v6
