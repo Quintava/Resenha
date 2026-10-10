@@ -29,7 +29,7 @@ const scoreLabel = (sport) =>
       ? "Pontos"
       : "Gols";
 const starsFromScore = (score) =>
-  score >= 8.5 ? 5 : score >= 7.6 ? 4 : score >= 6.8 ? 3 : score >= 6 ? 2 : 1;
+  score <= 0 ? 0 : score >= 8.5 ? 5 : score >= 7.6 ? 4 : score >= 6.8 ? 3 : score >= 6 ? 2 : 1;
 
 const rankingArtwork = {
   football: `${import.meta.env.BASE_URL}assets/ranking-futebol.webp`,
@@ -60,6 +60,10 @@ function eventLabel(event, sport) {
     return `Troca de função · ${event.playerOut} e ${event.playerIn}`;
   if (event.type === "goalkeeper_change") return `${event.playerIn} assumiu o gol`;
   if (event.type === "match_highlight") return `${event.playerName} foi o destaque da partida`;
+  if (event.type === "automatic_bonus")
+    return `${event.bonusLabel} · ${event.playerName} (+${Number(event.bonusValue || 0)
+      .toFixed(2)
+      .replace(".", ",")})`;
   const goalkeeper = {
     goalkeeper_save: "Defesa",
     goalkeeper_difficult_save: "Defesa difícil",
@@ -111,13 +115,11 @@ export default function PaginaPublica({ slug }) {
 
   const activeRanking = useMemo(() => {
     if (sportKind(sport) !== "football" || rankingRole === "line") return baseRanking;
-    return [...baseRanking]
-      .filter((player) => Number(player.saves || 0) > 0)
-      .sort(
-        (a, b) =>
-          Number(b.saves || 0) - Number(a.saves || 0) ||
-          Number(b.evaluation || 0) - Number(a.evaluation || 0),
-      );
+    return [...baseRanking].sort(
+      (a, b) =>
+        Number(b.saves || 0) - Number(a.saves || 0) ||
+        Number(b.evaluation || 0) - Number(a.evaluation || 0),
+    );
   }, [baseRanking, rankingRole, sport]);
 
   const highlights = useMemo(() => {
@@ -260,7 +262,8 @@ export default function PaginaPublica({ slug }) {
               </h2>
               {rankingScope === "career" && (
                 <p className="public-ranking-rule">
-                  A classificação de carreira começa após 3 partidas e usa média ajustada.
+                  Todos começam com nota zero; as primeiras médias são estabilizadas para manter a
+                  classificação justa.
                 </p>
               )}
             </div>
@@ -563,15 +566,17 @@ export default function PaginaPublica({ slug }) {
           <article>
             <strong>Resultado e ataque</strong>
             <span>Vitória +0,35 · empate +0,15 · derrota −0,15</span>
-            <span>{scoreLabel(sport).slice(0, -1)} +0,55 · destaque +0,30</span>
+            <span>{scoreLabel(sport).slice(0, -1)} +0,55 · sequência ofensiva +0,30</span>
             {football && (
               <span>Assistência +0,30 · assistência do goleiro +0,50 · bônus máximo +2,0</span>
             )}
+            <span>Três vitórias seguidas na sessão +0,40</span>
           </article>
           {football && (
             <article>
               <strong>Goleiro</strong>
               <span>Defesa +0,12 · difícil +0,30 · pênalti +0,70</span>
+              <span>Duas defesas de pênalti na partida +0,50</span>
               <span>Sem sofrer gol até +0,40 · gol sofrido −0,08 (máx. −0,40)</span>
               <span>Falha −0,45</span>
             </article>

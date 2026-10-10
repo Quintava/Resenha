@@ -82,7 +82,7 @@ alter table public.user_match_events
   check (event_type in (
     'goal', 'sub', 'own_goal', 'missed_penalty', 'goalkeeper_change',
     'goalkeeper_save', 'goalkeeper_difficult_save', 'goalkeeper_penalty_save', 'goalkeeper_error',
-    'match_highlight'
+    'match_highlight', 'automatic_bonus'
   ));
 
 -- Configuração do Mural da Resenha compartilhado.
@@ -390,7 +390,7 @@ with page as (
   limit 1
 ),
 eligible_players as (
-  select player ->> 'id' as id
+  select player ->> 'id' as id, player ->> 'name' as name
   from user_core as core
   join page on page.user_id = core.user_id and page.group_id = core.group_id
   cross join lateral jsonb_array_elements(coalesce(core.data -> 'players', '[]'::jsonb)) as player
@@ -512,10 +512,13 @@ performance as (
                 and event.payload ->> 'goalkeeperId' = roster.id
             ) * 0.08
           )
-        + count(event.id) filter (
-            where event.event_type = 'match_highlight'
-              and event.player_id = roster.id
-          ) * 0.30
+        + coalesce(
+            sum((event.payload ->> 'bonusValue')::numeric) filter (
+              where event.event_type = 'automatic_bonus'
+                and event.player_id = roster.id
+            ),
+            0
+          )
         + case
             when roster.team_index not in (0, 1) then 0
             when coalesce(
@@ -569,26 +572,28 @@ ranking_group_average as (
 ),
 ranking as (
   select
-    ranked.id,
-    ranked.name,
-    ranked.goals,
-    ranked.assists,
-    ranked.saves,
-    ranked.games,
-    ranked.average,
-    ranked.save_average,
-    ranked.evaluation as raw_evaluation,
-    round(
-      (
-        ranked.evaluation * ranked.games
-        + group_average.evaluation * 3
-      ) / (ranked.games + 3),
-      1
-    ) as evaluation
-  from ranking_base as ranked
+    eligible.id,
+    eligible.name,
+    coalesce(ranked.goals, 0)::int as goals,
+    coalesce(ranked.assists, 0)::int as assists,
+    coalesce(ranked.saves, 0)::int as saves,
+    coalesce(ranked.games, 0)::int as games,
+    coalesce(ranked.average, 0)::numeric as average,
+    coalesce(ranked.save_average, 0)::numeric as save_average,
+    coalesce(ranked.evaluation, 0)::numeric as raw_evaluation,
+    case
+      when coalesce(ranked.games, 0) = 0 then 0
+      else round(
+        (
+          ranked.evaluation * ranked.games
+          + group_average.evaluation * 3
+        ) / (ranked.games + 3),
+        1
+      )
+    end as evaluation
+  from eligible_players as eligible
+  left join ranking_base as ranked on ranked.id = eligible.id
   cross join ranking_group_average as group_average
-  -- A carreira só ganha posição depois de três partidas concluídas.
-  where ranked.games >= 3
 ),
 monthly_ranking as (
   select

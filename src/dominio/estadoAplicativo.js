@@ -32,6 +32,7 @@ export function renamePlayerInMatch(match, playerId, oldName, newName) {
         "goalkeeper_penalty_save",
         "goalkeeper_error",
         "match_highlight",
+        "automatic_bonus",
       ].includes(event.type) &&
       event.playerId === playerId
     )
@@ -86,6 +87,7 @@ export function removePlayerFromMatch(match, playerId) {
           "goalkeeper_penalty_save",
           "goalkeeper_error",
           "match_highlight",
+          "automatic_bonus",
         ].includes(event.type) &&
         event.playerId === playerId
       )

@@ -20,6 +20,7 @@ export function LinhaEventoPartida({ event, match, onUndo }) {
   const isSubstitution = event.type === "sub";
   const isGoalkeeperChange = event.type === "goalkeeper_change";
   const isHighlight = event.type === "match_highlight";
+  const isAutomaticBonus = event.type === "automatic_bonus";
   const goalkeeperLabels = {
     goalkeeper_save: "Defesa",
     goalkeeper_difficult_save: "Defesa difícil",
@@ -35,7 +36,7 @@ export function LinhaEventoPartida({ event, match, onUndo }) {
     <div className={`event-row ${event.type}`}>
       <span className="event-minute">{event.minute}&apos;</span>
       <span className={`event-icon ${team?.color || "green"}`}>
-        {isHighlight ? (
+        {isHighlight || isAutomaticBonus ? (
           <Sparkles size={17} />
         ) : isSubstitution || isGoalkeeperChange ? (
           <ArrowDownUp size={17} />
@@ -103,6 +104,20 @@ export function LinhaEventoPartida({ event, match, onUndo }) {
           <>
             <strong>{event.playerName} foi o destaque</strong>
             <small>+0,30 na avaliação da partida</small>
+          </>
+        )}
+        {isAutomaticBonus && (
+          <>
+            <strong>
+              {event.bonusLabel} · {event.playerName}
+            </strong>
+            <small>
+              +
+              {Number(event.bonusValue || 0)
+                .toFixed(2)
+                .replace(".", ",")}{" "}
+              na avaliação
+            </small>
           </>
         )}
       </div>
@@ -194,7 +209,6 @@ export function CartaoTime({
   onSub,
   onGoalkeeperChange,
   onGoalkeeperAction,
-  onHighlight,
   hasAvailableBench,
   sharedBench,
 }) {
@@ -242,12 +256,6 @@ export function CartaoTime({
                 <div className={`player-action-menu ${isGoalkeeper ? "goalkeeper-actions" : ""}`}>
                   <small>{isGoalkeeper ? "Ações do goleiro" : "Ações do jogador"}</small>
                   <div>
-                    <button
-                      type="button"
-                      onClick={() => runPlayerAction(() => onHighlight(player.id))}
-                    >
-                      <Sparkles size={15} /> Destaque da partida
-                    </button>
                     <button type="button" onClick={() => runPlayerAction(() => onGoal(player.id))}>
                       <Goal size={15} /> Registrar {scoreLabel.toLowerCase()}
                     </button>

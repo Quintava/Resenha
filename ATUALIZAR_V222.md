@@ -10,10 +10,13 @@
 ## Ajuste de justiça do ranking
 
 - atleta novo começa com zero pontos, zero partidas e sem estrelas;
-- a carreira só classifica o atleta depois de três partidas concluídas;
+- todos aparecem na carreira desde o cadastro, começando com nota, pontos e estrelas zerados;
 - a nota de carreira usa média ajustada para reduzir distorções por poucas partidas;
 - o sorteio equilibrado considera força zero para atletas ainda sem histórico;
 - o Mural público segue a mesma regra após atualizar o banco com `supabase/schema.sql`.
+- bônus automáticos: sequência ofensiva +0,30, duas defesas de pênalti +0,50 e três vitórias seguidas +0,40;
+- o destaque manual da partida foi removido;
+- o ranking de goleiros mantém todos os jogadores visíveis, inclusive com valores zerados.
 
 ## Descoberta nos buscadores
 

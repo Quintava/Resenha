@@ -26,9 +26,8 @@ export const SPORT_PRESETS = {
 };
 
 export const PLAYER_PAGE_SIZE = 10;
-export const CAREER_VERSION = 4;
-// Evita que uma única atuação coloque um atleta novo no topo da carreira.
-export const MINIMUM_CAREER_GAMES = 3;
+// Versão 5 recalcula históricos antigos sem o destaque manual e aceita bônus automáticos.
+export const CAREER_VERSION = 5;
 // Peso de referência usado para estabilizar a média nas primeiras partidas.
 export const RANKING_REFERENCE_GAMES = 3;
 export const TRAINING_DAYS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];

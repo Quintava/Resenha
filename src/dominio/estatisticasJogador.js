@@ -36,9 +36,9 @@ export function playerPerformance(match, playerId) {
     2,
     points * 0.55 + assists * assistWeight + goalkeeperAssists * 0.2,
   );
-  const highlight = (match.events || []).some(
-    (event) => event.type === "match_highlight" && event.playerId === playerId,
-  );
+  const automaticBonus = (match.events || [])
+    .filter((event) => event.type === "automatic_bonus" && event.playerId === playerId)
+    .reduce((total, event) => total + Number(event.bonusValue || 0), 0);
   const penalties = ownGoals * 0.4 + missedPenalties * 0.3;
   const attendanceBonus = match.managementMode === "academy" ? 0.2 : 0;
   const goalkeeper = isFootball
@@ -66,7 +66,7 @@ export function playerPerformance(match, playerId) {
           penalties +
           goalkeeper.adjustment +
           attendanceBonus +
-          (highlight ? 0.3 : 0)
+          automaticBonus
         ).toFixed(1),
       ),
     ),
@@ -81,11 +81,118 @@ export function playerPerformance(match, playerId) {
     score,
     stars: starsFromScore(score),
     resultBonus,
-    highlight,
+    automaticBonus,
     offensiveBonus,
     attendanceBonus,
     goalkeeper,
   };
+}
+
+const eventTime = (event) => Number(event.elapsedSeconds || event.minute * 60 || 0);
+
+const playersFromTeam = (team) => [...(team?.starters || []), ...(team?.bench || [])];
+
+const winnerPlayerIds = (match) => {
+  const first = Number(match.score?.[0] || 0);
+  const second = Number(match.score?.[1] || 0);
+  if (first === second) return new Set();
+  return new Set(playersFromTeam(match.teams?.[first > second ? 0 : 1]).map((player) => player.id));
+};
+
+const playerWonMatch = (match, playerId) => winnerPlayerIds(match).has(playerId);
+
+// Materializa os bônus automáticos no encerramento para que app, carreira e Mural usem a mesma nota.
+export function applyAutomaticBonuses(match, history = []) {
+  if (!match) return match;
+  const eventsWithoutOldBonuses = (match.events || []).filter(
+    (event) => event.type !== "automatic_bonus",
+  );
+  const scoringEvents = [...eventsWithoutOldBonuses]
+    .filter((event) => event.type === "goal")
+    .sort((a, b) => eventTime(a) - eventTime(b));
+  const bonuses = new Map();
+  const addBonus = (playerId, playerName, bonusKind, bonusValue, bonusLabel) => {
+    const key = `${playerId}:${bonusKind}`;
+    if (!playerId || bonuses.has(key)) return;
+    bonuses.set(key, {
+      id: `bonus-${match.id}-${playerId}-${bonusKind}`,
+      type: "automatic_bonus",
+      playerId,
+      playerName: playerName || "Jogador",
+      bonusKind,
+      bonusValue,
+      bonusLabel,
+      teamIndex: (match.teams || []).findIndex((team) =>
+        playersFromTeam(team).some((player) => player.id === playerId),
+      ),
+      minute: Math.max(0, ...eventsWithoutOldBonuses.map((event) => Number(event.minute || 0))),
+      elapsedSeconds: Math.max(0, ...eventsWithoutOldBonuses.map(eventTime)),
+    });
+  };
+
+  // Duas participações ofensivas consecutivas: 2 gols, 2 assistências ou uma de cada.
+  for (let index = 1; index < scoringEvents.length; index += 1) {
+    const previous = scoringEvents[index - 1];
+    const current = scoringEvents[index];
+    const previousContributors = new Map(
+      [
+        [previous.playerId, previous.playerName],
+        [previous.assistPlayerId, previous.assistPlayerName],
+      ].filter(([id]) => Boolean(id)),
+    );
+    [
+      [current.playerId, current.playerName],
+      [current.assistPlayerId, current.assistPlayerName],
+    ].forEach(([id, name]) => {
+      if (id && previousContributors.has(id))
+        addBonus(
+          id,
+          name || previousContributors.get(id),
+          "offensive_sequence",
+          0.3,
+          sportKind(match.sport) === "volleyball"
+            ? "Dois pontos seguidos"
+            : sportKind(match.sport) === "basketball"
+              ? "Duas cestas seguidas"
+              : "Duas participações ofensivas seguidas",
+        );
+    });
+  }
+
+  // Duas defesas de pênalti na mesma partida geram um reconhecimento específico ao goleiro.
+  const penaltySaves = new Map();
+  eventsWithoutOldBonuses
+    .filter((event) => event.type === "goalkeeper_penalty_save")
+    .forEach((event) => {
+      const current = penaltySaves.get(event.playerId) || { count: 0, name: event.playerName };
+      penaltySaves.set(event.playerId, { ...current, count: current.count + 1 });
+    });
+  penaltySaves.forEach((value, playerId) => {
+    if (value.count >= 2)
+      addBonus(playerId, value.name, "two_penalty_saves", 0.5, "Duas defesas de pênalti");
+  });
+
+  // O bônus de sequência é individual e nasce apenas ao completar 3, 6, 9... vitórias na sessão.
+  const currentWinners = winnerPlayerIds(match);
+  const sessionMatches = (history || [])
+    .filter((game) => game.sessionId && game.sessionId === match.sessionId)
+    .sort((a, b) => Number(b.roundNumber || 0) - Number(a.roundNumber || 0));
+  currentWinners.forEach((playerId) => {
+    let previousWins = 0;
+    for (const game of sessionMatches) {
+      if (!playerWonMatch(game, playerId)) break;
+      previousWins += 1;
+    }
+    const streak = previousWins + 1;
+    if (streak >= 3 && streak % 3 === 0) {
+      const player = (match.teams || [])
+        .flatMap(playersFromTeam)
+        .find((item) => item.id === playerId);
+      addBonus(playerId, player?.name, "three_wins", 0.4, `${streak} vitórias seguidas`);
+    }
+  });
+
+  return { ...match, events: [...bonuses.values(), ...eventsWithoutOldBonuses] };
 }
 
 // Reconstrói os períodos no gol a partir do goleiro inicial e de cada troca registrada.

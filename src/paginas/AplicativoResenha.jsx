@@ -96,7 +96,6 @@ import {
   LEGACY_STORAGE_KEY,
   MIGRATION_OWNER_KEY,
   PLAYER_PAGE_SIZE,
-  MINIMUM_CAREER_GAMES,
   RANKING_REFERENCE_GAMES,
   SPORT_PRESETS,
   TEAM_META,
@@ -122,6 +121,7 @@ import {
 } from "../utilitarios/seguranca";
 import {
   applyMatchToCareers,
+  applyAutomaticBonuses,
   buildPlayerStats,
   emptyCareer,
   normalizeCareer,
@@ -214,6 +214,10 @@ const historicalEventLabel = (event, sport) => {
     return `Troca de posição entre ${event.playerOut} e ${event.playerIn}`;
   if (event.type === "goalkeeper_change") return `${event.playerIn} assumiu o gol`;
   if (event.type === "match_highlight") return `${event.playerName} foi o destaque da partida`;
+  if (event.type === "automatic_bonus")
+    return `${event.bonusLabel} de ${event.playerName} · bônus +${Number(event.bonusValue || 0)
+      .toFixed(2)
+      .replace(".", ",")}`;
   if (event.type === "score_adjustment") return "Correção manual do placar";
   return "Lance registrado";
 };
@@ -1176,13 +1180,15 @@ export default function AplicativoResenha() {
       return { ok: false, error: "Marque pelo menos 2 jogadores presentes." };
     }
     const durationSeconds = data.settings.duration * 60;
+    const usesGoalkeepers = sportKind(data.settings.sport) === "football";
     const teamCount = Math.max(2, Math.min(TEAM_META.length, Number(data.settings.teamCount) || 2));
     const ratedPlayers = presentPlayers.map(({ academyProfile: _privateProfile, ...player }) => ({
       ...player,
       rating: playerStats.get(player.id)?.rating ?? 0,
       balanceScore: playerStats.get(player.id)?.balanceScore ?? 0,
       evaluatedGames: playerStats.get(player.id)?.matches || 0,
-      fixedGoalkeeper: (data.settings.fixedGoalkeeperIds || []).includes(player.id),
+      fixedGoalkeeper:
+        usesGoalkeepers && (data.settings.fixedGoalkeeperIds || []).includes(player.id),
     }));
     if (ratedPlayers.length < teamCount) {
       setSetupMessage(`Marque pelo menos ${teamCount} jogadores para formar ${teamCount} times.`);
@@ -1209,7 +1215,7 @@ export default function AplicativoResenha() {
       setSetupMessage("A divisão manual precisa ter pelo menos um jogador em cada time.");
       return { ok: false, error: "Escolha pelo menos um jogador para cada time." };
     }
-    if (data.settings.drawMode === "manual") {
+    if (usesGoalkeepers && data.settings.drawMode === "manual") {
       const goalkeeperTeams = ratedPlayers
         .filter((player) => player.fixedGoalkeeper)
         .map((player) => manualAssignments[player.id]);
@@ -1218,7 +1224,7 @@ export default function AplicativoResenha() {
         return { ok: false, error: "Goleiros fixos no mesmo time." };
       }
     }
-    const allTeams = prepareGoalkeepers(
+    const drawnTeams =
       data.settings.drawMode === "manual"
         ? buildManualTeams(
             ratedPlayers,
@@ -1227,8 +1233,10 @@ export default function AplicativoResenha() {
             teamCount,
             data.settings.teamNames,
           )
-        : drawTeams(ratedPlayers, data.settings.drawMode, data.settings.startersPerTeam, teamCount),
-    );
+        : drawTeams(ratedPlayers, data.settings.drawMode, data.settings.startersPerTeam, teamCount);
+    const allTeams = usesGoalkeepers
+      ? prepareGoalkeepers(drawnTeams)
+      : drawnTeams.map((team) => ({ ...team, goalkeeperId: null }));
     const match = {
       id: uid(),
       sessionId: uid(),
@@ -1243,7 +1251,9 @@ export default function AplicativoResenha() {
       teams: allTeams.slice(0, 2),
       reserveTeams: allTeams.slice(2),
       sharedBench: Boolean(data.settings.sharedBench),
-      initialGoalkeeperIds: allTeams.slice(0, 2).map((team) => team.goalkeeperId),
+      initialGoalkeeperIds: usesGoalkeepers
+        ? allTeams.slice(0, 2).map((team) => team.goalkeeperId)
+        : [],
       score: [0, 0],
       events: [],
     };
@@ -1400,8 +1410,13 @@ export default function AplicativoResenha() {
         sport: safeSport,
         startersPerTeam: preset.players,
         duration: preset.duration,
+        hasFixedGoalkeepers:
+          sportKind(safeSport) === "football" ? current.settings.hasFixedGoalkeepers : false,
+        fixedGoalkeeperIds:
+          sportKind(safeSport) === "football" ? current.settings.fixedGoalkeeperIds || [] : [],
       },
     }));
+    if (sportKind(safeSport) !== "football") setGoalkeeperPickerOpen(false);
     setStatsSport(safeSport);
   };
   const toggleAttendance = (playerId) =>
@@ -1689,30 +1704,6 @@ export default function AplicativoResenha() {
       return { ...current, activeMatch: { ...match, events: [event, ...match.events] } };
     });
 
-  // Mantém apenas um destaque por partida e registra a escolha junto dos demais lances.
-  const registerMatchHighlight = (teamIndex, playerId) =>
-    setData((current) => {
-      const match = current.activeMatch;
-      const player = match?.teams[teamIndex]?.starters.find((item) => item.id === playerId);
-      if (!match || !player) return current;
-      const event = {
-        id: uid(),
-        type: "match_highlight",
-        teamIndex,
-        playerId: player.id,
-        playerName: player.name,
-        minute: minuteOf(match),
-        elapsedSeconds: match.durationSeconds - match.remainingSeconds,
-      };
-      return {
-        ...current,
-        activeMatch: {
-          ...match,
-          events: [event, ...match.events.filter((item) => item.type !== "match_highlight")],
-        },
-      };
-    });
-
   const undoMatchEvent = (eventId) =>
     setData((current) => {
       const match = current.activeMatch;
@@ -1742,7 +1733,11 @@ export default function AplicativoResenha() {
   const finishMatch = () => {
     if (!data.activeMatch || finishingRef.current) return;
     finishingRef.current = true;
-    const finished = { ...data.activeMatch, running: false, finishedAt: new Date().toISOString() };
+    const finishedBase = {
+      ...data.activeMatch,
+      running: false,
+      finishedAt: new Date().toISOString(),
+    };
     const nextMatch = {
       ...data.activeMatch,
       id: uid(),
@@ -1754,14 +1749,17 @@ export default function AplicativoResenha() {
       events: [],
       initialGoalkeeperIds: data.activeMatch.teams.map((team) => team.goalkeeperId),
     };
-    setData((current) => ({
-      ...current,
-      players: applyMatchToCareers(current.players, finished, 1),
-      history: [finished, ...current.history],
-      activeMatch: nextMatch,
-    }));
+    setData((current) => {
+      const finished = applyAutomaticBonuses(finishedBase, current.history);
+      return {
+        ...current,
+        players: applyMatchToCareers(current.players, finished, 1),
+        history: [finished, ...current.history],
+        activeMatch: nextMatch,
+      };
+    });
     setMatchMessage(
-      `Partida ${finished.roundNumber || 1} salva. A escalação foi mantida; faça as próximas trocas manualmente.`,
+      `Partida ${finishedBase.roundNumber || 1} salva. A escalação foi mantida; faça as próximas trocas manualmente.`,
     );
     setView("match");
     window.setTimeout(() => {
@@ -1811,7 +1809,10 @@ export default function AplicativoResenha() {
       const activeMatch = current.activeMatch;
       if (!activeMatch) return current;
       if (!played) return { ...current, activeMatch: null };
-      const finished = { ...activeMatch, running: false, finishedAt: new Date().toISOString() };
+      const finished = applyAutomaticBonuses(
+        { ...activeMatch, running: false, finishedAt: new Date().toISOString() },
+        current.history,
+      );
       return {
         ...current,
         players: applyMatchToCareers(current.players, finished, 1),
@@ -2058,42 +2059,45 @@ export default function AplicativoResenha() {
   );
   const overallRanking = useMemo(() => {
     const sport = canonicalSport(statsSport);
-    const careers = activePlayers
-      .map((player) => {
-        const career = normalizeCareer(player.career)?.sports?.[sport];
-        if (!career?.games) return null;
-        return { player, career };
-      })
-      .filter(Boolean);
-    const groupAverage = careers.length
-      ? careers.reduce((total, item) => total + item.career.evaluationAverage, 0) / careers.length
+    const careers = activePlayers.map((player) => {
+      const career = normalizeCareer(player.career)?.sports?.[sport];
+      return { player, career };
+    });
+    const evaluatedCareers = careers.filter(({ career }) => Number(career?.games || 0) > 0);
+    const groupAverage = evaluatedCareers.length
+      ? evaluatedCareers.reduce(
+          (total, item) => total + Number(item.career.evaluationAverage || 0),
+          0,
+        ) / evaluatedCareers.length
       : 6;
     return careers
-      .filter(({ career }) => career.games >= MINIMUM_CAREER_GAMES)
       .map(({ player, career }) => {
+        const games = Number(career?.games || 0);
         const adjustedEvaluation = adjustedRankingScore(
-          career.evaluationAverage,
-          career.games,
+          Number(career?.evaluationAverage || 0),
+          games,
           groupAverage,
           RANKING_REFERENCE_GAMES,
         );
         return {
           id: player.id,
           name: player.name,
-          goals: career.points,
-          assists: career.assists,
-          saves: career.goalkeeperSaves,
-          goalkeeperAppearances: career.goalkeeperAppearances || 0,
-          goalkeeperEvaluation: Number((career.goalkeeperEvaluationAverage || 0).toFixed(1)),
-          saveAverage: career.goalkeeperAppearances
-            ? career.goalkeeperSaves / career.goalkeeperAppearances
+          goals: Number(career?.points || 0),
+          assists: Number(career?.assists || 0),
+          saves: Number(career?.goalkeeperSaves || 0),
+          goalkeeperAppearances: Number(career?.goalkeeperAppearances || 0),
+          goalkeeperEvaluation: Number(Number(career?.goalkeeperEvaluationAverage || 0).toFixed(1)),
+          saveAverage: career?.goalkeeperAppearances
+            ? Number(career.goalkeeperSaves || 0) / career.goalkeeperAppearances
             : 0,
-          games: career.games,
+          games,
           total:
-            sportKind(statsSport) === "football" ? career.points + career.assists : career.points,
+            sportKind(statsSport) === "football"
+              ? Number(career?.points || 0) + Number(career?.assists || 0)
+              : Number(career?.points || 0),
           evaluation: adjustedEvaluation,
-          rawEvaluation: Number(career.evaluationAverage.toFixed(1)),
-          stars: starsFromScore(adjustedEvaluation, career.games),
+          rawEvaluation: Number(Number(career?.evaluationAverage || 0).toFixed(1)),
+          stars: starsFromScore(adjustedEvaluation, games),
         };
       })
       .sort(
@@ -2153,12 +2157,30 @@ export default function AplicativoResenha() {
       : rankingScope === "month"
         ? monthlyRanking
         : overallRanking;
-  const displayedGoalkeeperRanking = [...displayedRanking]
-    .filter((player) => player.goalkeeperAppearances > 0)
+  const displayedGoalkeeperRanking = activePlayers
+    .map((player) =>
+      displayedRanking.find((ranked) => ranked.id === player.id)
+        ? displayedRanking.find((ranked) => ranked.id === player.id)
+        : {
+            id: player.id,
+            name: player.name,
+            goals: 0,
+            assists: 0,
+            saves: 0,
+            goalkeeperAppearances: 0,
+            goalkeeperEvaluation: 0,
+            saveAverage: 0,
+            games: 0,
+            total: 0,
+            evaluation: 0,
+            stars: 0,
+          },
+    )
     .sort(
       (a, b) =>
         b.goalkeeperEvaluation - a.goalkeeperEvaluation ||
         b.saves - a.saves ||
+        b.goalkeeperAppearances - a.goalkeeperAppearances ||
         a.name.localeCompare(b.name),
     );
   const displayedRoleRanking =
@@ -3219,68 +3241,70 @@ export default function AplicativoResenha() {
                   </small>
                 </span>
               </label>
-              <fieldset className="goalkeeper-picker">
-                <legend>
-                  Goleiro fixo de hoje <small>(opcional)</small>
-                </legend>
-                <div className="field goalkeeper-mode-field">
-                  <label htmlFor="fixed-goalkeeper-mode">Vai ter goleiro fixo?</label>
-                  <select
-                    id="fixed-goalkeeper-mode"
-                    value={data.settings.hasFixedGoalkeepers ? "yes" : "no"}
-                    onChange={(event) => setFixedGoalkeeperMode(event.target.value === "yes")}
-                  >
-                    <option value="no">Não, vai ter rodízio</option>
-                    <option value="yes">Sim, escolher goleiros</option>
-                  </select>
-                </div>
-                {data.settings.hasFixedGoalkeepers && (
-                  <div className="goalkeeper-select-menu">
-                    <button
-                      type="button"
-                      className="goalkeeper-select-trigger"
-                      onClick={() => setGoalkeeperPickerOpen((current) => !current)}
-                      aria-expanded={goalkeeperPickerOpen}
+              {sportKind(data.settings.sport) === "football" && (
+                <fieldset className="goalkeeper-picker">
+                  <legend>
+                    Goleiro fixo de hoje <small>(opcional)</small>
+                  </legend>
+                  <div className="field goalkeeper-mode-field">
+                    <label htmlFor="fixed-goalkeeper-mode">Vai ter goleiro fixo?</label>
+                    <select
+                      id="fixed-goalkeeper-mode"
+                      value={data.settings.hasFixedGoalkeepers ? "yes" : "no"}
+                      onChange={(event) => setFixedGoalkeeperMode(event.target.value === "yes")}
                     >
-                      <span>
-                        <Shield size={17} />
-                        {(data.settings.fixedGoalkeeperIds || []).length
-                          ? `${data.settings.fixedGoalkeeperIds.length} goleiro(s) selecionado(s)`
-                          : "Selecionar os goleiros"}
-                      </span>
-                      <ChevronDown size={17} />
-                    </button>
-                    {goalkeeperPickerOpen && (
-                      <div className="goalkeeper-option-list">
-                        {presentPlayers.length ? (
-                          presentPlayers.map((player) => {
-                            const selected = (data.settings.fixedGoalkeeperIds || []).includes(
-                              player.id,
-                            );
-                            return (
-                              <label key={player.id}>
-                                <input
-                                  type="checkbox"
-                                  checked={selected}
-                                  onChange={() => toggleFixedGoalkeeper(player.id)}
-                                />
-                                <Avatar name={player.name} />
-                                <span>{player.name}</span>
-                                {selected && <Check size={16} />}
-                              </label>
-                            );
-                          })
-                        ) : (
-                          <p>Marque os jogadores presentes para escolher os goleiros.</p>
-                        )}
-                      </div>
-                    )}
-                    <small>
-                      Escolha até um por time. Eles começarão no gol e serão separados no sorteio.
-                    </small>
+                      <option value="no">Não, vai ter rodízio</option>
+                      <option value="yes">Sim, escolher goleiros</option>
+                    </select>
                   </div>
-                )}
-              </fieldset>
+                  {data.settings.hasFixedGoalkeepers && (
+                    <div className="goalkeeper-select-menu">
+                      <button
+                        type="button"
+                        className="goalkeeper-select-trigger"
+                        onClick={() => setGoalkeeperPickerOpen((current) => !current)}
+                        aria-expanded={goalkeeperPickerOpen}
+                      >
+                        <span>
+                          <Shield size={17} />
+                          {(data.settings.fixedGoalkeeperIds || []).length
+                            ? `${data.settings.fixedGoalkeeperIds.length} goleiro(s) selecionado(s)`
+                            : "Selecionar os goleiros"}
+                        </span>
+                        <ChevronDown size={17} />
+                      </button>
+                      {goalkeeperPickerOpen && (
+                        <div className="goalkeeper-option-list">
+                          {presentPlayers.length ? (
+                            presentPlayers.map((player) => {
+                              const selected = (data.settings.fixedGoalkeeperIds || []).includes(
+                                player.id,
+                              );
+                              return (
+                                <label key={player.id}>
+                                  <input
+                                    type="checkbox"
+                                    checked={selected}
+                                    onChange={() => toggleFixedGoalkeeper(player.id)}
+                                  />
+                                  <Avatar name={player.name} />
+                                  <span>{player.name}</span>
+                                  {selected && <Check size={16} />}
+                                </label>
+                              );
+                            })
+                          ) : (
+                            <p>Marque os jogadores presentes para escolher os goleiros.</p>
+                          )}
+                        </div>
+                      )}
+                      <small>
+                        Escolha até um por time. Eles começarão no gol e serão separados no sorteio.
+                      </small>
+                    </div>
+                  )}
+                </fieldset>
+              )}
               {data.settings.drawMode === "manual" && (
                 <div className="manual-teams">
                   <header>
@@ -3504,7 +3528,6 @@ export default function AplicativoResenha() {
                   onSub={(playerId) => openSubstitution(teamIndex, playerId)}
                   onGoalkeeperChange={() => openGoalkeeperChange(teamIndex)}
                   onGoalkeeperAction={(type) => registerGoalkeeperAction(teamIndex, type)}
-                  onHighlight={(playerId) => registerMatchHighlight(teamIndex, playerId)}
                 />
               ))}
               <aside className="events-card">
@@ -3706,8 +3729,9 @@ export default function AplicativoResenha() {
                     {workspaceMode === "academy" && " A presença vale +0,20."} O bônus ofensivo é
                     limitado a +2,0
                     {currentRankingKind === "football" && "; ações de goleiro têm pesos próprios"}.
+                    {" Sequências ofensivas e de vitórias geram bônus automáticos."}
                     {rankingScope === "overall" &&
-                      ` A carreira exige ${MINIMUM_CAREER_GAMES} partidas e usa uma média ajustada para evitar vantagem por pouca amostragem.`}
+                      " Todos aparecem desde o cadastro; quem ainda não jogou permanece com nota zero, e as primeiras médias são estabilizadas."}
                   </p>
                   <TabelaDesempenho
                     ranking={displayedRoleRanking.map((player) => {
@@ -5814,7 +5838,7 @@ export default function AplicativoResenha() {
           </button>
         </Modal>
       )}
-      {goalkeeperTeam !== null && match && (
+      {goalkeeperTeam !== null && match && sportKind(match.sport) === "football" && (
         <Modal
           onClose={() => setGoalkeeperTeam(null)}
           icon={<Shield size={25} />}
